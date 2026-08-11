@@ -329,40 +329,69 @@ Max_used_connections = 21 -- 7× more than before, still well below max_connecti
 
 ### Hypothesis
 > Given one-at-a-time works but concurrent admits to the *same* hospital fail,
-> I think the cause is _____________________________________________________
-> and the failure will show up as ______ (a DB error? a timeout? a stall?) ___.
+> I think the cause is **hot-row lock contention** on `hospitals.id = 1`: the
+> admit transaction takes an exclusive row lock, then holds it for ~500ms while
+> `notifyBedRegistry()` runs *inside* the transaction before commit. Concurrent
+> admits to the same hospital serialize on that row; with `innodb_lock_wait_timeout=5`
+> waiters time out with `ER_LOCK_WAIT_TIMEOUT` (1205). Different hospitals use
+> different rows, so they interfere less.
+>
+> **Kill-test:** during reproduction, `sys.innodb_lock_waits` /
+> `performance_schema.data_locks` show waiter → blocker on the same hospital
+> row, and successful throughput ≈ `1/W ≈ 1/0.5 = 2` admits/sec for that hospital.
+> Hypothesis dies if there are no lock waits and failures come from elsewhere
+> (pool, constraints, etc.).
 
 ### Observation (evidence)
-> While the reproduction runs, inspect concurrent writers to one row:
-> ```sql
-> SELECT * FROM performance_schema.data_locks\G
-> SELECT * FROM sys.innodb_lock_waits\G
-> SHOW ENGINE INNODB STATUS\G   -- TRANSACTIONS section
-> ```
-> Paste the most telling waiter/blocker rows and the failure signature you saw
-> (a DB error + code, a timeout, or stalled/near-zero throughput):
-> ```
->
-> ```
-| Metric                     | Value | vs. baseline |
-|----------------------------|-------|--------------|
-| p95 / p99 latency          |       |              |
-| Max successful admits/sec  |       |              |
-| DB error(s) + code         |       |              |
-| Error rate                 |       |              |
+
+**Lock waits under load** (`evidence/OPS-2203-locks.txt`) — mid-run with 500 VUs all hitting hospital `1`:
+
+```
+sys.innodb_lock_waits (sample):
+  waiting_query:  UPDATE hospitals SET available_beds = available_beds - 1 WHERE id = 1
+  blocking_pid:   749   (holder is sleeping in notifyBedRegistry — query NULL)
+  waiting_pid:    741, 739, 740, ... (queue of waiters on the SAME row)
+
+Innodb_row_lock_current_waits = 19
+Innodb_row_lock_time_avg      = 3529 ms
+Innodb_row_lock_time_max      = 5069 ms   -- ~innodb_lock_wait_timeout=5s
+```
+
+Hypothesis **CONFIRMED**: waiter → blocker chain on one hospital row; critical section held across the 500ms notify.
+
+**k6 before** (`evidence/reproduce-OPS-2203-before.txt`) — 500 VUs × 30s (+ long graceful drain):
+
+| Metric | Value | vs. baseline |
+|---|---|---|
+| p95 latency | **55.77 s** | baseline read p95 17ms — different endpoint; SLO ✗ |
+| p99 latency | 58.73 s | |
+| Successful admits (checks 200) | 118 / 217 | ~2 admits/sec ceiling |
+| http_reqs RPS | 3.62 | |
+| Error rate | **45.62%** (99/217) | |
+| Failure signature | HTTP 500, MySQL `ER_LOCK_WAIT_TIMEOUT` (1205) — lock wait > `innodb_lock_wait_timeout=5` | |
 
 ### Root cause & mechanism
-> Explain why concurrency cannot beat serialization on a single hot row. If the
-> critical section is held for W seconds per admit, what is the theoretical max
-> throughput for that one row, regardless of how many callers pile on?
-> 1 / W = ______ admits/sec. Where does the time in the critical section go, and
-> which of the transactional guarantees is enforcing the wait? ________________
+
+Writers serialize on one hot row (`hospitals.id = 1`). Isolation (I in ACID) requires exclusive row locks for conflicting UPDATEs. The critical section held the lock for **W ≈ 0.5 s** because `notifyBedRegistry()` slept *inside* the open transaction.
+
+**Capacity math:** max admits for that hospital ≈ `1 / W = 1 / 0.5 = 2` admits/sec. Extra concurrency only lengthens the wait queue → after 5s, `ER_LOCK_WAIT_TIMEOUT`. Measured successful throughput (~2/s) matches theory. Different hospitals = different rows → less interference.
 
 ### Fix & verify
-> The change you made (consider: shrinking the critical section, moving slow
-> work out of the transaction, atomic guarded updates, reducing contention on
-> the hot row): _____________________________________________________________
-> Re-measured throughput / error rate: ______________________________________
+
+**Change:** shrink the critical section in `api/server.js`:
+1. Replace the multi-statement transaction with a single atomic guarded UPDATE: `UPDATE ... WHERE id = ? AND available_beds > 0`.
+2. Move `notifyBedRegistry` **after** the lock is released (fire-and-forget).
+
+**k6 after** (`evidence/reproduce-OPS-2203-after.txt`):
+
+| Metric | Before | After | Change |
+|---|---|---|---|
+| Successful RPS | ~2 admits/s (118/60s) | **1,575 admits/s** | ~**787×** |
+| Error rate | 45.62% | **0.00%** | fixed |
+| p95 | 55.77 s | **363 ms** | ~154× better |
+| Lock waits | 19 current, avg wait 3.5s | brief X-locks only (ms-scale UPDATE) | |
+
+Trade-off: registry notify is no longer in the same atomic transaction as the bed decrement — eventual consistency / retry queue needed in production if notify fails.
 
 ---
 
@@ -372,41 +401,66 @@ Max_used_connections = 21 -- 7× more than before, still well below max_connecti
 
 ### Hypothesis
 > Given memory spikes right before each restart and only the big export is
-> affected, I think the cause is ___________________________________________
-> because __________________________________________________________________.
+> affected, I think the cause is **unbounded materialization of ~100k patient
+> rows in app memory** (`SELECT * FROM patients` → full array → `res.json`)
+> because the payload is O(N) and concurrent exports multiply heap until the
+> process exceeds the 160MB cgroup limit (with V8 told `--max-old-space-size=256`)
+> and the kernel OOM-kills it → restart loop.
+>
+> **Kill-test:** during export, `nodejs_heap_size_used_bytes` / `docker stats`
+> climb toward the limit and `RestartCount` increases. Hypothesis dies if heap
+> stays flat and the crash is something else.
 
 ### Observation (evidence)
-> Watch `nodejs_heap_size_used_bytes`, GC pauses, and restarts:
-> ```bash
-> docker stats
-> docker compose logs -f capacity-api
-> ```
-| Metric                          | Value |
-|---------------------------------|-------|
-| Approx. payload size per request|       |
-| Peak heap before crash          |       |
-| Time-to-first-crash             |       |
-| Container restart count         |       |
-| GC pause trend                  |       |
 
-> Paste the crash / exit log lines:
-> ```
->
-> ```
+**Payload math:** ~385 bytes/row JSON × 100,000 rows ≈ **38.5 MB** serialized per export (JS object graph is larger). With C=50 concurrent exports, naive buffering ≈ `50 × 38.5 MB` ≫ 160MB cgroup.
+
+**Under load** (`evidence/OPS-2204-under-load.txt`):
+
+```
+sample @ +15s: mem=160MiB / 160MiB  RestartCount=3
+sample @ +30s: RestartCount=6  Status=restarting  OOMKilled=true
+... climbed to RestartCount=10 with repeated OOM kills
+```
+
+**k6 before** (`evidence/reproduce-OPS-2204-before.txt`): **100%** `http_req_failed`, 0 successful checks, `RestartCount` 0→10.
+
+| Metric | Value |
+|---|---|
+| Approx. payload size per request | ~38.5 MB JSON (100k × ~385 B/row) |
+| Peak container memory | **160 MiB / 160 MiB** (hard ceiling) |
+| Time-to-first-crash | **≤15 s** (RestartCount already 3) |
+| Container restart count | **0 → 10** |
+| GC / heap | process OOMkilled before stable Prometheus scrape |
+
+Crash signature: `OOMKilled=true`, container restart loop (`evidence/OPS-2204-app.log`).
 
 ### Root cause & mechanism
-> Estimate per-row size, then the full payload: rows × bytes/row = ______ MB.
-> With C concurrent callers, peak resident memory ≈ ______ MB — compare to the
-> container's memory budget (160MB locally / 256MB in prod). Explain what happens
-> to GC frequency, CPU, and
-> throughput as live heap approaches the limit, and why the current approach
-> uses O(N) memory while a better one could use far less. ____________________
+
+`SELECT * FROM patients` materializes the full result in Node, then `res.json` doubles cost. Memory is **O(N × C)** with N=rows, C=concurrent exports.
+
+```
+full_payload_MB ≈ (100000 × 385) / 1e6 ≈ 38.5 MB
+with C=50 → theoretical ≫ 160MB budget → kernel OOM kill
+```
+
+Streaming/pagination uses O(buffer) memory instead of O(N).
 
 ### Fix & verify
-> The change you made (consider: bounding how much of the result set is in
-> memory at once, streaming to the response, sensible page sizes, compression):
-> ____________________________________________________________________________
-> Re-run evidence — new peak heap: ______  restarts: ______  error rate: ______
+
+**Change:** stream export as NDJSON via mysql2 `.stream({ highWaterMark: 50 })` with backpressure (`pause`/`drain`) in `api/server.js`.
+
+**k6 after** (`evidence/reproduce-OPS-2204-after.txt`):
+
+| Metric | Before | After |
+|---|---|---|
+| Error rate | 100% | **0%** |
+| Checks succeeded | 0 / 917389 | **405 / 405** |
+| RestartCount | 0 → 10 | **stayed 0** |
+| Container mem | 160/160 MiB, OOM | **~52 MiB / 160 MiB** |
+| Data transferred | 0 B | **15 GB** (exports completing) |
+
+Trade-off: response format is NDJSON (one JSON object per line), not a single `{count,data}` envelope — ETL must read line-delimited JSON (or we could add `?format=` later).
 
 ---
 
@@ -414,13 +468,17 @@ Max_used_connections = 21 -- 7× more than before, still well below max_connecti
 
 > Rank the four incidents by **blast radius** (threat to overall availability at
 > scale), justified with your measured numbers:
-> 1. ____________________________________________________________________
-> 2. ____________________________________________________________________
-> 3. ____________________________________________________________________
-> 4. ____________________________________________________________________
+> 1. **OPS-2202** — whole API stalled under surge (p95 ~650ms on trivial reads; mechanism: app pool=2). Takes down *every* endpoint.
+> 2. **OPS-2204** — export OOM-killed the container (RestartCount 0→10, 100% fail) and took co-tenants with it.
+> 3. **OPS-2201** — search p95 17ms→7.6s under concurrency; other endpoints stayed healthy; layered with pool + fat payload.
+> 4. **OPS-2203** — per-hospital only (~2 admits/s, 46% lock timeouts); other hospitals less affected.
 >
 > If you could ship only **one** fix before a launch, which and why?
-> ____________________________________________________________________________
+> **OPS-2202 (pool sizing).** One-line change unblocks all reads; without it every other fix fights a 2-slot queue (and we saw OPS-2201's index alone not move end-to-end p95).
 >
 > For each incident, what alert or dashboard would have caught it in production
-> *before* a user filed a ticket? ____________________________________________
+> *before* a user filed a ticket?
+> - **2201:** p95 latency + rows_examined on `/api/patients/search`; `EXPLAIN` gate in CI for hot queries.
+> - **2202:** app pool wait depth / `active==limit` gauge + “API p95↑ while MySQL Threads_running flat”.
+> - **2203:** `Innodb_row_lock_waits` / lock wait time + error rate on admit with code 1205.
+> - **2204:** container memory vs limit + RestartCount / OOMKilled; alert before 80% of cgroup.
