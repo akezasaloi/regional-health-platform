@@ -1,0 +1,9 @@
+mysql: [Warning] Using a password on the command line interface can be insecure.
+Variable_name	Value
+Threads_running	2
+Variable_name	Value
+Threads_connected	3
+active_queries
+1
+id	TIME	STATE	query
+249	0	executing	SELECT id, TIME, STATE, LEFT(INFO,80) AS query FROM information_schema.processli

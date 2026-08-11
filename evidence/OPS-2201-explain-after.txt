@@ -1,0 +1,8 @@
+mysql: [Warning] Using a password on the command line interface can be insecure.
+Table	Non_unique	Key_name	Seq_in_index	Column_name	Collation	Cardinality	Sub_part	Packed	Null	Index_type	Comment	Index_comment	Visible	Expression
+patients	0	PRIMARY	1	id	A	98191	NULL	NULL		BTREE			YES	NULL
+patients	1	idx_patients_last_name	1	last_name	A	9	NULL	NULL		BTREE			YES	NULL
+id	select_type	table	partitions	type	possible_keys	key	key_len	ref	rows	filtered	Extra
+1	SIMPLE	patients	NULL	ref	idx_patients_last_name	idx_patients_last_name	258	const	10000	100.00	NULL
+EXPLAIN
+-> Index lookup on patients using idx_patients_last_name (last_name='Smith')  (cost=2371 rows=10000) (actual time=0.0142..10.8 rows=10000 loops=1)\n
