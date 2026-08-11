@@ -1,0 +1,182 @@
+mysql: [Warning] Using a password on the command line interface can be insecure.
+*************************** 1. row ***************************
+ waiting_trx_id: 1931
+    waiting_pid: 741
+  waiting_query: UPDATE hospitals SET available ... vailable_beds - 1 WHERE id = 1
+blocking_trx_id: 1929
+   blocking_pid: 749
+ blocking_query: NULL
+*************************** 2. row ***************************
+ waiting_trx_id: 1933
+    waiting_pid: 739
+  waiting_query: UPDATE hospitals SET available ... vailable_beds - 1 WHERE id = 1
+blocking_trx_id: 1929
+   blocking_pid: 749
+ blocking_query: NULL
+*************************** 3. row ***************************
+ waiting_trx_id: 1933
+    waiting_pid: 739
+  waiting_query: UPDATE hospitals SET available ... vailable_beds - 1 WHERE id = 1
+blocking_trx_id: 1931
+   blocking_pid: 741
+ blocking_query: UPDATE hospitals SET available ... vailable_beds - 1 WHERE id = 1
+*************************** 4. row ***************************
+ waiting_trx_id: 1935
+    waiting_pid: 740
+  waiting_query: UPDATE hospitals SET available ... vailable_beds - 1 WHERE id = 1
+blocking_trx_id: 1929
+   blocking_pid: 749
+ blocking_query: NULL
+*************************** 5. row ***************************
+ waiting_trx_id: 1935
+    waiting_pid: 740
+  waiting_query: UPDATE hospitals SET available ... vailable_beds - 1 WHERE id = 1
+blocking_trx_id: 1931
+   blocking_pid: 741
+ blocking_query: UPDATE hospitals SET available ... vailable_beds - 1 WHERE id = 1
+*************************** 1. row ***************************
+OBJECT_SCHEMA: capacity_lab
+  OBJECT_NAME: hospitals
+    LOCK_TYPE: TABLE
+    LOCK_MODE: IX
+  LOCK_STATUS: GRANTED
+    LOCK_DATA: NULL
+*************************** 2. row ***************************
+OBJECT_SCHEMA: capacity_lab
+  OBJECT_NAME: hospitals
+    LOCK_TYPE: TABLE
+    LOCK_MODE: IX
+  LOCK_STATUS: GRANTED
+    LOCK_DATA: NULL
+*************************** 3. row ***************************
+OBJECT_SCHEMA: capacity_lab
+  OBJECT_NAME: hospitals
+    LOCK_TYPE: TABLE
+    LOCK_MODE: IX
+  LOCK_STATUS: GRANTED
+    LOCK_DATA: NULL
+*************************** 4. row ***************************
+OBJECT_SCHEMA: capacity_lab
+  OBJECT_NAME: hospitals
+    LOCK_TYPE: TABLE
+    LOCK_MODE: IX
+  LOCK_STATUS: GRANTED
+    LOCK_DATA: NULL
+*************************** 5. row ***************************
+OBJECT_SCHEMA: capacity_lab
+  OBJECT_NAME: hospitals
+    LOCK_TYPE: TABLE
+    LOCK_MODE: IX
+  LOCK_STATUS: GRANTED
+    LOCK_DATA: NULL
+*************************** 6. row ***************************
+OBJECT_SCHEMA: capacity_lab
+  OBJECT_NAME: hospitals
+    LOCK_TYPE: TABLE
+    LOCK_MODE: IX
+  LOCK_STATUS: GRANTED
+    LOCK_DATA: NULL
+*************************** 7. row ***************************
+OBJECT_SCHEMA: capacity_lab
+  OBJECT_NAME: hospitals
+    LOCK_TYPE: TABLE
+    LOCK_MODE: IX
+  LOCK_STATUS: GRANTED
+    LOCK_DATA: NULL
+*************************** 8. row ***************************
+OBJECT_SCHEMA: capacity_lab
+  OBJECT_NAME: hospitals
+    LOCK_TYPE: TABLE
+    LOCK_MODE: IX
+  LOCK_STATUS: GRANTED
+    LOCK_DATA: NULL
+*************************** 9. row ***************************
+OBJECT_SCHEMA: capacity_lab
+  OBJECT_NAME: hospitals
+    LOCK_TYPE: TABLE
+    LOCK_MODE: IX
+  LOCK_STATUS: GRANTED
+    LOCK_DATA: NULL
+*************************** 10. row ***************************
+OBJECT_SCHEMA: capacity_lab
+  OBJECT_NAME: hospitals
+    LOCK_TYPE: TABLE
+    LOCK_MODE: IX
+  LOCK_STATUS: GRANTED
+    LOCK_DATA: NULL
+*************************** 11. row ***************************
+OBJECT_SCHEMA: capacity_lab
+  OBJECT_NAME: hospitals
+    LOCK_TYPE: TABLE
+    LOCK_MODE: IX
+  LOCK_STATUS: GRANTED
+    LOCK_DATA: NULL
+*************************** 12. row ***************************
+OBJECT_SCHEMA: capacity_lab
+  OBJECT_NAME: hospitals
+    LOCK_TYPE: TABLE
+    LOCK_MODE: IX
+  LOCK_STATUS: GRANTED
+    LOCK_DATA: NULL
+*************************** 13. row ***************************
+OBJECT_SCHEMA: capacity_lab
+  OBJECT_NAME: hospitals
+    LOCK_TYPE: TABLE
+    LOCK_MODE: IX
+  LOCK_STATUS: GRANTED
+    LOCK_DATA: NULL
+*************************** 14. row ***************************
+OBJECT_SCHEMA: capacity_lab
+  OBJECT_NAME: hospitals
+    LOCK_TYPE: TABLE
+    LOCK_MODE: IX
+  LOCK_STATUS: GRANTED
+    LOCK_DATA: NULL
+*************************** 15. row ***************************
+OBJECT_SCHEMA: capacity_lab
+  OBJECT_NAME: hospitals
+    LOCK_TYPE: TABLE
+    LOCK_MODE: IX
+  LOCK_STATUS: GRANTED
+    LOCK_DATA: NULL
+*************************** 16. row ***************************
+OBJECT_SCHEMA: capacity_lab
+  OBJECT_NAME: hospitals
+    LOCK_TYPE: TABLE
+    LOCK_MODE: IX
+  LOCK_STATUS: GRANTED
+    LOCK_DATA: NULL
+*************************** 17. row ***************************
+OBJECT_SCHEMA: capacity_lab
+  OBJECT_NAME: hospitals
+    LOCK_TYPE: TABLE
+    LOCK_MODE: IX
+  LOCK_STATUS: GRANTED
+    LOCK_DATA: NULL
+*************************** 18. row ***************************
+OBJECT_SCHEMA: capacity_lab
+  OBJECT_NAME: hospitals
+    LOCK_TYPE: TABLE
+    LOCK_MODE: IX
+  LOCK_STATUS: GRANTED
+    LOCK_DATA: NULL
+*************************** 19. row ***************************
+OBJECT_SCHEMA: capacity_lab
+  OBJECT_NAME: hospitals
+    LOCK_TYPE: TABLE
+    LOCK_MODE: IX
+  LOCK_STATUS: GRANTED
+    LOCK_DATA: NULL
+*************************** 20. row ***************************
+OBJECT_SCHEMA: capacity_lab
+  OBJECT_NAME: hospitals
+    LOCK_TYPE: TABLE
+    LOCK_MODE: IX
+  LOCK_STATUS: GRANTED
+    LOCK_DATA: NULL
+Variable_name	Value
+Innodb_row_lock_current_waits	19
+Innodb_row_lock_time	275309
+Innodb_row_lock_time_avg	3529
+Innodb_row_lock_time_max	5069
+Innodb_row_lock_waits	78

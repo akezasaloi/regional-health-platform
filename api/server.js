@@ -112,36 +112,26 @@ app.get('/api/patients/search', async (req, res) => {
 
 // ---------------------------------------------------------------------------
 // Admit a patient to a hospital (decrement available beds).
-// We update the bed count, then notify the regional bed registry that the
-// count changed before finalizing, so the two systems stay consistent.
+// OPS-2203: do NOT hold the row lock across the external registry notify.
+// Atomic guarded UPDATE keeps Isolation/Atomicity without a long transaction.
 // ---------------------------------------------------------------------------
 app.post('/api/hospitals/:id/admit', async (req, res) => {
   const hospitalId = Number(req.params.id);
   const pool = getPool();
-  let conn;
   try {
-    conn = await pool.getConnection();
-    await conn.beginTransaction();
-
-    await conn.query(
-      'UPDATE hospitals SET available_beds = available_beds - 1 WHERE id = ?',
+    const [result] = await pool.query(
+      'UPDATE hospitals SET available_beds = available_beds - 1 WHERE id = ? AND available_beds > 0',
       [hospitalId]
     );
-
-    // Notify the external regional bed registry of the new count before we
-    // commit (simulated here with a network round-trip latency).
-    await notifyBedRegistry(hospitalId);
-
-    await conn.commit();
+    if (result.affectedRows === 0) {
+      return res.status(409).json({ error: 'NO_BEDS_AVAILABLE', hospitalId });
+    }
+    // Notify AFTER the row lock is released (fire-and-forget; prod would use a queue).
+    notifyBedRegistry(hospitalId).catch(() => { /* retry elsewhere */ });
     res.json({ status: 'admitted', hospitalId });
   } catch (err) {
-    if (conn) {
-      try { await conn.rollback(); } catch (_) { /* ignore */ }
-    }
     dbErrorsTotal.inc({ route: '/api/hospitals/:id/admit', code: err.code || 'UNKNOWN' });
     res.status(500).json({ error: err.code || 'ERROR', message: err.message });
-  } finally {
-    if (conn) conn.release();
   }
 });
 
@@ -151,14 +141,49 @@ function notifyBedRegistry(_hospitalId) {
 }
 
 // ---------------------------------------------------------------------------
-// Full patient export for the analytics/ETL team.
-// ---------------------------------------------------------------------------
-app.get('/api/patients/export', async (_req, res) => {
+ // Full patient export for the analytics/ETL team.
+ // OPS-2204: stream rows as NDJSON — O(1) memory instead of buffering ~100k rows.
+ // ---------------------------------------------------------------------------
+ app.get('/api/patients/export', async (_req, res) => {
+  const pool = getPool();
+  let conn;
+  let released = false;
+  const release = () => {
+    if (released || !conn) return;
+    released = true;
+    try { conn.release(); } catch (_) { /* ignore */ }
+  };
   try {
-    const pool = getPool();
-    const [rows] = await pool.query('SELECT * FROM patients');
-    res.json({ count: rows.length, data: rows });
+    conn = await pool.getConnection();
+    res.setHeader('Content-Type', 'application/x-ndjson');
+    // Use the underlying mysql2 connection stream so rows are not buffered in JS.
+    const stream = conn.connection
+      .query('SELECT * FROM patients')
+      .stream({ highWaterMark: 50 });
+
+    stream.on('data', (row) => {
+      const ok = res.write(JSON.stringify(row) + '\n');
+      if (!ok) {
+        stream.pause();
+        res.once('drain', () => stream.resume());
+      }
+    });
+    stream.on('end', () => {
+      res.end();
+      release();
+    });
+    stream.on('error', (err) => {
+      dbErrorsTotal.inc({ route: '/api/patients/export', code: err.code || 'UNKNOWN' });
+      if (!res.headersSent) res.status(500);
+      res.end();
+      release();
+    });
+    res.on('close', () => {
+      stream.destroy();
+      release();
+    });
   } catch (err) {
+    release();
     dbErrorsTotal.inc({ route: '/api/patients/export', code: err.code || 'UNKNOWN' });
     res.status(500).json({ error: err.code || 'ERROR', message: err.message });
   }

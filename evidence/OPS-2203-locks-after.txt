@@ -1,0 +1,7 @@
+mysql: [Warning] Using a password on the command line interface can be insecure.
+lock_waits
+142
+Variable_name	Value
+Innodb_row_lock_current_waits	19
+Variable_name	Value
+Innodb_row_lock_waits	19749
