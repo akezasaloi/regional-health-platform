@@ -1,0 +1,16 @@
+mysql: [Warning] Using a password on the command line interface can be insecure.
+Variable_name	Value
+Threads_running	2
+Variable_name	Value
+Threads_connected	3
+Variable_name	Value
+Max_used_connections	3
+Variable_name	Value
+Aborted_connects	0
+Variable_name	Value
+Connection_errors_max_connections	0
+active
+1
+id	TIME	STATE	query
+541	0	executing	SELECT id, TIME, STATE, LEFT(INFO,80) AS query FROM information_schema.processli
+94	0	executing	SELECT * FROM patients ORDER BY id DESC LIMIT 50
