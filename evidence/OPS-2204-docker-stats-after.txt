@@ -1,0 +1,2 @@
+CONTAINER ID   NAME           CPU %     MEM USAGE / LIMIT   MEM %     NET I/O         BLOCK I/O   PIDS
+adcfec5bee06   capacity-api   0.54%     52.21MiB / 160MiB   32.63%    11.4GB / 15GB   0B / 0B     11

@@ -1,0 +1,32 @@
+=== sample 1 @ 23:55:05 ===
+mem=160MiB / 160MiB cpu=83.36%
+RestartCount=3 Status=running OOMKilled=false
+heap_MB= n/a
+=== sample 2 @ 23:55:21 ===
+mem=0B / 0B cpu=0.00%
+RestartCount=6 Status=restarting OOMKilled=true
+heap_MB= n/a
+=== sample 3 @ 23:55:36 ===
+mem=0B / 0B cpu=0.00%
+RestartCount=7 Status=restarting OOMKilled=true
+heap_MB= n/a
+=== sample 4 @ 23:55:51 ===
+mem=0B / 0B cpu=0.00%
+RestartCount=8 Status=restarting OOMKilled=true
+heap_MB= n/a
+=== sample 5 @ 23:56:06 ===
+mem=0B / 0B cpu=0.00%
+RestartCount=9 Status=restarting OOMKilled=false
+heap_MB= n/a
+=== sample 6 @ 23:56:21 ===
+mem=0B / 0B cpu=0.00%
+RestartCount=9 Status=restarting OOMKilled=false
+heap_MB= n/a
+=== sample 7 @ 23:56:36 ===
+mem=0B / 0B cpu=0.00%
+RestartCount=10 Status=restarting OOMKilled=true
+heap_MB= n/a
+=== sample 8 @ 23:56:51 ===
+mem=0B / 0B cpu=0.00%
+RestartCount=10 Status=restarting OOMKilled=true
+heap_MB= n/a

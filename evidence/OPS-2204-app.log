@@ -1,0 +1,34 @@
+capacity-api  | capacity-api listening on :3000 (metrics at /metrics)
+capacity-api  | capacity-api listening on :3000 (metrics at /metrics)
+capacity-api  | capacity-api listening on :3000 (metrics at /metrics)
+capacity-api  | capacity-api listening on :3000 (metrics at /metrics)
+capacity-api  | capacity-api listening on :3000 (metrics at /metrics)
+capacity-api  | capacity-api listening on :3000 (metrics at /metrics)
+capacity-api  | capacity-api listening on :3000 (metrics at /metrics)
+capacity-api  | capacity-api listening on :3000 (metrics at /metrics)
+capacity-api  | capacity-api listening on :3000 (metrics at /metrics)
+capacity-api  | 
+capacity-api  | <--- Last few GCs --->
+capacity-api  | 
+capacity-api  | [1:0x16e6de00]     4802 ms: Scavenge (reduce) 253.0 (257.5) -> 252.9 (257.8) MB, 11.79 / 0.11 ms  (average mu = 0.407, current mu = 0.380) allocation failure; 
+capacity-api  | [1:0x16e6de00]     5617 ms: Mark-Compact (reduce) 254.1 (258.7) -> 253.6 (259.4) MB, 697.94 / 0.13 ms  (+ 631.4 ms in 39 steps since start of marking, biggest step 102.6 ms, walltime since start of marking 1420 ms) (average mu = 0.282, current mu = 0.217)
+capacity-api  | 
+capacity-api  | <--- JS stacktrace --->
+capacity-api  | 
+capacity-api  | FATAL ERROR: Reached heap limit Allocation failed - JavaScript heap out of memory
+capacity-api  | ----- Native stack trace -----
+capacity-api  | 
+capacity-api  |  1: 0xb73e90 node::OOMErrorHandler(char const*, v8::OOMDetails const&) [node]
+capacity-api  |  2: 0xeacd2c v8::Utils::ReportOOMFailure(v8::internal::Isolate*, char const*, v8::OOMDetails const&) [node]
+capacity-api  |  3: 0xeacefc v8::internal::V8::FatalProcessOutOfMemory(v8::internal::Isolate*, char const*, v8::OOMDetails const&) [node]
+capacity-api  |  4: 0x10b5c1c  [node]
+capacity-api  |  5: 0x10cc0f4 v8::internal::Heap::CollectGarbage(v8::internal::AllocationSpace, v8::internal::GarbageCollectionReason, v8::GCCallbackFlags) [node]
+capacity-api  |  6: 0x10a4ebc v8::internal::HeapAllocator::AllocateRawWithLightRetrySlowPath(int, v8::internal::AllocationType, v8::internal::AllocationOrigin, v8::internal::AllocationAlignment) [node]
+capacity-api  |  7: 0x10a5c80 v8::internal::HeapAllocator::AllocateRawWithRetryOrFailSlowPath(int, v8::internal::AllocationType, v8::internal::AllocationOrigin, v8::internal::AllocationAlignment) [node]
+capacity-api  |  8: 0x1084c10 v8::internal::Factory::AllocateRaw(int, v8::internal::AllocationType, v8::internal::AllocationAlignment) [node]
+capacity-api  |  9: 0x1076248 v8::internal::FactoryBase<v8::internal::Factory>::AllocateRawWithImmortalMap(int, v8::internal::AllocationType, v8::internal::Map, v8::internal::AllocationAlignment) [node]
+capacity-api  | 10: 0x1077eec v8::internal::Handle<v8::internal::HeapNumber> v8::internal::FactoryBase<v8::internal::Factory>::NewHeapNumber<(v8::internal::AllocationType)0>() [node]
+capacity-api  | 11: 0x12ccd40 v8::internal::JSDate::New(v8::internal::Handle<v8::internal::JSFunction>, v8::internal::Handle<v8::internal::JSReceiver>, double) [node]
+capacity-api  | 12: 0xf34fb8 v8::internal::Builtin_DateConstructor(int, unsigned long*, v8::internal::Isolate*) [node]
+capacity-api  | 13: 0x1899d04  [node]
+capacity-api  | capacity-api listening on :3000 (metrics at /metrics)
