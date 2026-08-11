@@ -19,12 +19,19 @@ const MYSQL_CONFIG = {
   password: process.env.MYSQL_PASSWORD || 'labpassword',
   database: process.env.MYSQL_DATABASE || 'capacity_lab',
 
-  // Keep the pool small so we don't overwhelm the database with connections.
+  // OPS-2202 fix: pool sized via Little's Law (L = λ × W).
+  // Target ~2,500 req/s on /api/patients/recent, whose query service time W
+  // is ~1 ms → required L ≥ 2.5. We pick 20 for ~10× headroom and to absorb
+  // slower endpoints (e.g. /api/patients/search which is a few ms per query).
+  // MySQL's max_connections is 151 and there is 1 API instance, so 20 is
+  // well within safe bounds (headroom for future replicas / other services).
+  // queueLimit remains 0 (unbounded queue) so brief bursts don't 503 the
+  // caller — bound the queue in front of this via a reverse-proxy / LB.
   waitForConnections: true,
-  connectionLimit: 2,
+  connectionLimit: 20,
   queueLimit: 0,
   connectTimeout: 10_000,
-  maxIdle: 2,
+  maxIdle: 10,
   idleTimeout: 60_000,
   enableKeepAlive: true,
 };
