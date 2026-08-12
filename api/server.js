@@ -94,16 +94,21 @@ app.get('/api/patients/recent', async (_req, res) => {
 
 // ---------------------------------------------------------------------------
 // Patient lookup by last name
+// OPS-2201 follow-up: bound the result set. Index alone + a larger pool still
+// left p95 terrible because Smith matched ~10k rows (~3.6 MB). Default LIMIT
+// keeps memory/CPU O(page size); callers can page with ?limit=&offset=.
 // ---------------------------------------------------------------------------
 app.get('/api/patients/search', async (req, res) => {
   const lastName = req.query.lastName || '';
+  const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 100, 1), 500);
+  const offset = Math.max(parseInt(req.query.offset, 10) || 0, 0);
   try {
     const pool = getPool();
     const [rows] = await pool.query(
-      'SELECT * FROM patients WHERE last_name = ?',
-      [lastName]
+      'SELECT id, first_name, last_name, email, diagnosis, created_at FROM patients WHERE last_name = ? ORDER BY id LIMIT ? OFFSET ?',
+      [lastName, limit, offset]
     );
-    res.json({ count: rows.length, lastName, data: rows });
+    res.json({ count: rows.length, lastName, limit, offset, data: rows });
   } catch (err) {
     dbErrorsTotal.inc({ route: '/api/patients/search', code: err.code || 'UNKNOWN' });
     res.status(500).json({ error: err.code || 'ERROR', message: err.message });

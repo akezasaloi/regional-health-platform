@@ -3,11 +3,11 @@
 ## OPS-2201 — Patient search full-scanned under concurrency
 
 - **S — Symptom:** Concurrent last-name search p95 = **7.60 s** (baseline p95 = 17 ms, **447×** worse); `/api/patients/recent` stayed healthy.
-- **C — Cause:** No index on `patients.last_name` → `EXPLAIN` `type=ALL`, ~100k rows examined per request. End-to-end also limited by app pool=2 and ~3.6 MB Smith payloads (cardinality=9).
-- **A — Action:** `ALTER TABLE patients ADD INDEX idx_patients_last_name (last_name);` (`data-seed/01-fixes.sql`).
-- **R — Result:** Plan `type=ALL` → `type=ref`; rows examined 100k → 10k; analyze ~21.6 ms → ~10.8 ms. End-to-end p95 barely moved until pool/payload issues were understood (see journal).
-- **Scar / lesson:** Prove the access path with `EXPLAIN` first — but re-measure end-to-end; an index can be correct and still not fix the SLO if another bottleneck dominates.
-- **Evidence:** `evidence/OPS-2201-explain-{before,after}.txt`, `evidence/reproduce-OPS-2201-{before,after}.txt`, journal §OPS-2201.
+- **C — Cause:** Stacked: (1) no index on `last_name` → full scan; (2) app pool=2; (3) unbounded Smith payloads (~10k rows / ~3.6 MB). Raising the pool alone made p95 **35.73 s**.
+- **A — Action:** Index on `last_name`; later bound search with default `LIMIT 100` + slim columns (no `notes`) in `api/server.js`.
+- **R — Result:** With index + pool=20 + LIMIT: p95 **35.73 s → 72.26 ms** (~494×), RPS 23.7 → **3,136**, SLO `p(95)<300` ✓.
+- **Scar / lesson:** Prove the access path with `EXPLAIN`, but re-measure end-to-end. Fixing one scarce resource can expose the next (pool → payload size).
+- **Evidence:** `evidence/OPS-2201-explain-{before,after}.txt`, `evidence/reproduce-OPS-2201-{before,after,after-pool-fix,after-limit}.txt`, journal §OPS-2201.
 
 ## OPS-2202 — Whole API frozen behind a 2-slot connection pool
 

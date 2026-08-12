@@ -192,13 +192,23 @@ The full table scan is **gone** — plan is now `type=ref`, `key=idx_patients_la
 
 With pool=2, MySQL was *accidentally* rate-limiting the search to 2 fat 3.6 MB responses at a time, so Node's event loop only had to serialize 2 in parallel. With pool=20, MySQL happily returns 20 × 3.6 MB = ~72 MB of rows to Node concurrently, and Node's single-threaded event loop chokes trying to JSON.stringify and write them all — actual measured RPS drops.
 
-There is a **third bottleneck** on this endpoint that neither the ticket nor the OPS-2202 fix touches: **the response payload is unbounded** (10,000 rows of ~360 bytes each = ~3.6 MB) because there is no `LIMIT` on the search query and the seeder gave `last_name` a cardinality of only 9. Proper fix (out of scope of the reported ticket, logged here for the synthesis section):
+There is a **third bottleneck** on this endpoint that neither the ticket nor the OPS-2202 fix touches: **the response payload is unbounded** (10,000 rows of ~360 bytes each = ~3.6 MB) because there is no `LIMIT` on the search query and the seeder gave `last_name` a cardinality of only 9.
 
-- Add a `LIMIT` (say 100) + `OFFSET`/keyset pagination to `/api/patients/search`.
-- Or return only the fields the UI actually needs (`id, first_name, last_name`) instead of `SELECT *` including the `notes` TEXT column.
-- Or stream the response with `res.write` per row (same technique OPS-2204 will need).
+**Follow-up fix shipped** (`api/server.js`):
+- Default `LIMIT 100` (cap 500) + `OFFSET` pagination via query params.
+- Slim projection: drop the fat `notes` TEXT column from the search response (`SELECT id, first_name, last_name, email, diagnosis, created_at`).
 
-**Verdict:** OPS-2201's ticketed hypothesis (missing index → full scan) is confirmed at the SQL level. The ticket's *symptom* (p95 out of SLO) has two more causes stacked on top: (a) app pool queue [OPS-2202] and (b) unbounded response size — and the "correct" pool fix for (a) makes (b) worse. This endpoint needs all three fixes to hit its SLO. This finding is exactly the kind of "obvious fix isn't the fix" case the assignment rewards.
+**k6 after limit + slim columns** (`evidence/reproduce-OPS-2201-after-limit.txt`) — same 200 VUs × 30s, with index + pool=20 still in place:
+
+| Metric | Unbounded (pool=20) | Bounded LIMIT 100 | Change |
+|---|---|---|---|
+| p95 | **35.73 s** | **72.26 ms** | ~**494×** better; SLO ✓ (`p(95)<300`) |
+| p99 | 36.73 s | 87.52 ms | |
+| RPS | 23.7 | **3,136** | ~**132×** |
+| Error rate | 0% | 0% | |
+| Data received / 30s | ~3.2 GB | 1.5 GB | smaller per-req payloads |
+
+**Verdict:** OPS-2201 needed **three** stacked fixes to hit the shift-change SLO: (1) index on `last_name`, (2) adequate app pool [OPS-2202], (3) bounded/paginated search results. The ticketed hypothesis (missing index) was true at the SQL layer; end-to-end latency only landed after all three scarce resources were addressed.
 
 ---
 
