@@ -331,6 +331,8 @@ Max_used_connections = 21 -- 7× more than before, still well below max_connecti
 
 **Alert that would have caught this before a ticket:** a Prometheus gauge on the mysql2 pool waiter count (or the ratio `pool_active / pool_size`) with an alert on `>80%` for 1 minute. Also a paired alert on `Threads_running` being suspiciously low while API p95 climbs — that's the fingerprint of app-side queueing.
 
+**Grafana:** `evidence/OPS-2202-grafana-surge.png` — throughput spike on `/api/patients/recent` during the 2,000-VU surge window.
+
 ---
 
 ## Investigation — OPS-2203
@@ -459,6 +461,10 @@ Streaming/pagination uses O(buffer) memory instead of O(N).
 ### Fix & verify
 
 **Change:** stream export as NDJSON via mysql2 `.stream({ highWaterMark: 50 })` with backpressure (`pause`/`drain`) in `api/server.js`.
+
+**P2 follow-up (review feedback):** also cap concurrent exports with `MAX_CONCURRENT_EXPORTS` (default **2**). Extra callers get **503** + `Retry-After: 5` (`EXPORT_CAPACITY_EXCEEDED`) so many ETL workers cannot stack heap/CPU even with streaming.
+
+**Grafana:** `evidence/OPS-2204-grafana-heap.png` (memory vs limit during export load); also `evidence/OPS-2202-grafana-surge.png`, `evidence/OPS-2201-grafana-search.png`, `evidence/OPS-2203-grafana-admits.png`.
 
 **k6 after** (`evidence/reproduce-OPS-2204-after.txt`):
 

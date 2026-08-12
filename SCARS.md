@@ -31,7 +31,7 @@
 
 - **S — Symptom:** Full export → mem **160/160 MiB**, `OOMKilled=true`, RestartCount **0→10**, **100%** request failures; took the instance down.
 - **C — Cause:** Unbounded `SELECT *` buffered in app memory (~38.5 MB JSON/export × concurrency) vs 160 MB cgroup (V8 `--max-old-space-size=256`).
-- **A — Action:** Stream rows as NDJSON with mysql2 `.stream()` + backpressure (`api/server.js`).
-- **R — Result:** RestartCount stayed **0**; container mem ~**52/160 MiB**; error rate **0%**; 405/405 checks passed; **15 GB** successfully streamed.
-- **Scar / lesson:** “Return everything” endpoints must stream or paginate. Alert on memory vs cgroup limit + RestartCount before users page you.
-- **Evidence:** `evidence/OPS-2204-under-load.txt`, `evidence/reproduce-OPS-2204-{before,after}.txt`, journal §OPS-2204.
+- **A — Action:** Streamed rows as NDJSON with mysql2 `.stream()` + backpressure; later added `MAX_CONCURRENT_EXPORTS=2` with fast **503** when saturated (`api/server.js`).
+- **R — Result:** RestartCount stayed **0**; container mem ~**52/160 MiB**; error rate **0%** on successful stream path; 405/405 checks passed; **15 GB** successfully streamed. Concurrent overflow now fails fast with 503 instead of stacking.
+- **Scar / lesson:** “Return everything” endpoints must stream or paginate — and bound concurrent expensive ops. Alert on memory vs cgroup limit + RestartCount before users page you.
+- **Evidence:** `evidence/OPS-2204-under-load.txt`, `evidence/reproduce-OPS-2204-{before,after}.txt`, `evidence/OPS-2204-grafana-heap.png`, journal §OPS-2204.

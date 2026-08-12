@@ -146,18 +146,35 @@ function notifyBedRegistry(_hospitalId) {
 }
 
 // ---------------------------------------------------------------------------
- // Full patient export for the analytics/ETL team.
- // OPS-2204: stream rows as NDJSON — O(1) memory instead of buffering ~100k rows.
- // ---------------------------------------------------------------------------
- app.get('/api/patients/export', async (_req, res) => {
+// Full patient export for the analytics/ETL team.
+// OPS-2204: stream rows as NDJSON — O(1) memory instead of buffering ~100k rows.
+// Also cap concurrent exports so many callers cannot stack heap/CPU (P2 review).
+// ---------------------------------------------------------------------------
+const MAX_CONCURRENT_EXPORTS = Number(process.env.MAX_CONCURRENT_EXPORTS || 2);
+let activeExports = 0;
+
+app.get('/api/patients/export', async (_req, res) => {
+  if (activeExports >= MAX_CONCURRENT_EXPORTS) {
+    res.set('Retry-After', '5');
+    return res.status(503).json({
+      error: 'EXPORT_CAPACITY_EXCEEDED',
+      message: `Too many concurrent exports (max ${MAX_CONCURRENT_EXPORTS}). Retry shortly.`,
+    });
+  }
+
   const pool = getPool();
   let conn;
   let released = false;
   const release = () => {
-    if (released || !conn) return;
+    if (released) return;
     released = true;
-    try { conn.release(); } catch (_) { /* ignore */ }
+    activeExports = Math.max(0, activeExports - 1);
+    if (conn) {
+      try { conn.release(); } catch (_) { /* ignore */ }
+    }
   };
+
+  activeExports += 1;
   try {
     conn = await pool.getConnection();
     res.setHeader('Content-Type', 'application/x-ndjson');
