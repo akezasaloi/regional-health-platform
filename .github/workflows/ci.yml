@@ -31,6 +31,14 @@ jobs:
           fetch-depth: 0 # full history: a secret is only found in the commit that added it
           persist-credentials: false
       - uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2.3.9
+        env:
+          # Required on pull_request events: the action reads the PR's commit
+          # range through the API. This is the ephemeral per-job token, not a
+          # stored repo secret, and it is capped by permissions: contents: read
+          # above. No deployment credential is exposed to this job.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # No PR comments, so the job needs no pull-requests: write.
+          GITLEAKS_ENABLE_COMMENTS: 'false'
 
   trivy-config:
     runs-on: ubuntu-22.04
