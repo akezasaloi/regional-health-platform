@@ -23,6 +23,7 @@ load-tests/results/
 
 # Terraform / LocalStack — state is a credential store, never commit it
 .terraform/
+**/.terraform/
 *.tfstate
 *.tfstate.*
 crash.log
@@ -41,6 +42,8 @@ terraform.rc
 !evidence/**/*.log
 !evidence/**/*.txt
 !evidence/**/*.json
+# Loom / screencaps stay out of git (submit as links)
+evidence/**/*.mp4
 
 # Keep generated dumps out of git
 /tmp/
