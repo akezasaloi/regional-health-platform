@@ -87,7 +87,10 @@ jobs:
     permissions:
       contents: read
     outputs:
+      # ami_tag is the docker tag LocalStack discovers the image by.
+      # ami_id is what aws_instance.ami takes — LocalStack rejects the full tag.
       ami_tag: ${{ steps.tag.outputs.ami_tag }}
+      ami_id: ${{ steps.tag.outputs.ami_id }}
     steps:
       - uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
         with:
@@ -96,7 +99,10 @@ jobs:
         with:
           persist-credentials: false
       - id: tag
-        run: echo "ami_tag=localstack-ec2/app:ami-$(git rev-parse --short=12 HEAD)" >> "$GITHUB_OUTPUT"
+        run: |
+          short="$(git rev-parse --short=12 HEAD)"
+          echo "ami_tag=localstack-ec2/app:ami-${short}" >> "$GITHUB_OUTPUT"
+          echo "ami_id=ami-${short}" >> "$GITHUB_OUTPUT"
       - env:
           AMI_TAG: ${{ steps.tag.outputs.ami_tag }}
         run: docker build -t "$AMI_TAG" ./api
@@ -129,7 +135,10 @@ jobs:
       AWS_ACCESS_KEY_ID: test
       AWS_SECRET_ACCESS_KEY: test
       AWS_DEFAULT_REGION: us-east-1
-      TF_VAR_app_ami_id: ${{ needs.build-and-scan-image.outputs.ami_tag }}
+      # The AMI id, not the docker tag: LocalStack matches the running image by
+      # its localstack-ec2/<name>:<ami-id> tag, but aws_instance.ami rejects
+      # anything that is not ami-<hex> (InvalidAMIID.Malformed).
+      TF_VAR_app_ami_id: ${{ needs.build-and-scan-image.outputs.ami_id }}
       # A runner's $USER is "runner", so the Makefile's default root
       # (terraform/envs/$USER) does not exist. Point it at the template.
       TF_DIR: ${{ github.workspace }}/terraform/envs/_template
