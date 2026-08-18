@@ -22,6 +22,11 @@ terraform {
     region         = "us-east-1"
     dynamodb_table = "tfstate-lock"
     encrypt        = true
+
+    # bootstrap/tfstate.sh creates the bucket path-style via awslocal. Without
+    # this the backend writes virtual-host style (bucket.s3.<host>) and PutObject
+    # comes back NoSuchBucket even though init could read the state.
+    use_path_style = true
   }
 }
 
