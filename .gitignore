@@ -31,3 +31,8 @@ evidence/**/*.mp4
 
 !evidence/
 !evidence/**
+
+# Terraform
+**/.terraform/
+*.tfstate
+*.tfstate.*

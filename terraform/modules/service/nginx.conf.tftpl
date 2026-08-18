@@ -1,0 +1,19 @@
+upstream capacity_api {
+    server 127.0.0.1:${app_port};
+}
+
+server {
+    listen 80;
+
+    location /readyz {
+        proxy_pass http://capacity_api/readyz;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+    }
+
+    location / {
+        proxy_pass http://capacity_api;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+    }
+}
