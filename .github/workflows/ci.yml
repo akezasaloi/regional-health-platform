@@ -142,9 +142,12 @@ jobs:
       # A runner's $USER is "runner", so the Makefile's default root
       # (terraform/envs/$USER) does not exist. Point it at the template.
       TF_DIR: ${{ github.workspace }}/terraform/envs/_template
-      # EC2 must use the docker VM manager to register images tagged
-      # localstack-ec2/<name>:<ami-id> as AMIs. Set on the job as well as the
-      # action input: the CLI reads config from the environment directly.
+      # Docker-backed EC2 (Hobby/Pro) needs the host docker.sock inside the
+      # LocalStack container. setup-localstack runs `localstack start -d` and
+      # does not always mount the socket — RunInstances then cannot back the
+      # instance with a container, and terraform reports
+      # "collecting instance settings: couldn't find resource".
+      DOCKER_FLAGS: -v /var/run/docker.sock:/var/run/docker.sock
       EC2_VM_MANAGER: docker
     steps:
       - uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
@@ -160,14 +163,33 @@ jobs:
       - env:
           AMI_TAG: ${{ needs.build-and-scan-image.outputs.ami_tag }}
         run: docker build -t "$AMI_TAG" ./api
-      # in-runner mode: LocalStack starts as a container inside this runner and
-      # is reached at localhost:4566. Nothing is hosted off-runner.
-      # EC2_VM_MANAGER=docker: without it EC2 runs a mock manager that only
-      # knows its own AMIs and answers "couldn't find resource" for ours.
+      # Install awslocal only. We start LocalStack ourselves so the docker
+      # socket is mounted (required by EC2_VM_MANAGER=docker).
       - uses: LocalStack/setup-localstack@7c8a0cb3405bc58be4c8f763f812aa000bc46303 # v0.3.2
         with:
           install-awslocal: 'true'
-          configuration: EC2_VM_MANAGER=docker
+          skip-startup: 'true'
+      - name: Start LocalStack (docker VM manager + host docker.sock)
+        run: |
+          docker pull localstack/localstack-pro:latest
+          docker rm -f localstack-main 2>/dev/null || true
+          docker run -d --name localstack-main \
+            -p 4566:4566 \
+            -p 4510-4559:4510-4559 \
+            -e LOCALSTACK_AUTH_TOKEN \
+            -e EC2_VM_MANAGER=docker \
+            -e DEBUG=1 \
+            -e DOCKER_HOST=unix:///var/run/docker.sock \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v /tmp/localstack-volume:/var/lib/localstack \
+            localstack/localstack-pro:latest
+          for i in $(seq 1 60); do
+            curl -fsS http://localhost:4566/_localstack/health >/dev/null 2>&1 && break
+            sleep 2
+          done
+          curl -fsS http://localhost:4566/_localstack/health >/dev/null \
+            || { echo "FAIL: LocalStack never became healthy"; docker logs localstack-main | tail -80; exit 1; }
+          echo ">> LocalStack healthy with EC2_VM_MANAGER=docker and docker.sock mounted"
       # setup-localstack installs awslocal only. tflocal drives Terraform at
       # LocalStack; verify.sh check 5 shells out to gitleaks; seed.sh restores
       # the dump into Aiven with the mysql client.
@@ -223,31 +245,34 @@ jobs:
       # well-formed AMI id. Write what it actually sees to the job summary, so
       # it renders on the run page instead of hiding in a collapsed log step.
       - name: diagnose LocalStack AMI registration
-        continue-on-error: true
         env:
           AMI_TAG: ${{ needs.build-and-scan-image.outputs.ami_tag }}
           AMI_ID: ${{ needs.build-and-scan-image.outputs.ami_id }}
         run: |
-          exec > >(tee -a "$GITHUB_STEP_SUMMARY") 2>&1
-          echo '## LocalStack AMI diagnostics'
-          echo '```'
-          echo "expected tag : $AMI_TAG"
-          echo "expected id  : $AMI_ID"
-          echo
-          echo "--- images tagged localstack-ec2/* on the daemon ---"
-          docker images --format '{{.Repository}}:{{.Tag}}' | grep localstack-ec2 || echo "NONE"
-          echo
-          echo "--- effective EC2 config inside LocalStack ---"
-          curl -s http://localhost:4566/_localstack/diagnose \
-            | python3 -c 'import json,sys;c=json.load(sys.stdin).get("config",{});[print(f"{k}={v}") for k,v in sorted(c.items()) if "EC2" in k]' \
-            || echo "diagnose unavailable"
-          echo
-          echo "--- does LocalStack know our AMI? ---"
-          awslocal ec2 describe-images --image-ids "$AMI_ID" 2>&1 | head -20
-          echo
-          echo "--- custom AMIs (localstack-ec2 backed) LocalStack lists ---"
-          awslocal ec2 describe-images --query "Images[?contains(Name, 'app') || contains(ImageId, '${AMI_ID#ami-}')]" 2>&1 | head -20
-          echo '```'
+          {
+            echo '## LocalStack AMI diagnostics'
+            echo '```'
+            echo "expected tag : $AMI_TAG"
+            echo "expected id  : $AMI_ID"
+            echo
+            echo "--- images tagged localstack-ec2/* on the daemon ---"
+            docker images --format '{{.Repository}}:{{.Tag}}' | grep localstack-ec2 || echo "NONE"
+            echo
+            echo "--- docker.sock mounted into LocalStack? ---"
+            docker inspect localstack-main --format '{{range .Mounts}}{{.Source}} -> {{.Destination}}{{println}}{{end}}'
+            echo
+            echo "--- docker-backed AMIs ---"
+            awslocal ec2 describe-images --filters Name=tag:ec2_vm_manager,Values=docker --output table || true
+            echo '```'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
+          if awslocal ec2 describe-images --image-ids "$AMI_ID" --query 'Images[0].ImageId' --output text 2>/dev/null | grep -qx "$AMI_ID"; then
+            echo "OK: LocalStack registered $AMI_ID"
+          else
+            echo "FAIL: LocalStack does not know AMI $AMI_ID" | tee -a "$GITHUB_STEP_SUMMARY"
+            awslocal ec2 describe-images --image-ids "$AMI_ID" || true
+            exit 1
+          fi
       - run: make bootstrap
       - run: tflocal -chdir="$TF_DIR" init -backend-config=backend.hcl
       - run: make up

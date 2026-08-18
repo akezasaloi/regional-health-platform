@@ -84,7 +84,9 @@ localstack-up: check-token
 	  echo ">> LocalStack already healthy"; \
 	else \
 	  echo ">> starting LocalStack (in-process / local daemon)"; \
-	  localstack start -d; \
+	  DOCKER_FLAGS="$${DOCKER_FLAGS:--v /var/run/docker.sock:/var/run/docker.sock}" \
+	    EC2_VM_MANAGER="$${EC2_VM_MANAGER:-docker}" \
+	    localstack start -d; \
 	fi
 	@for i in $$(seq 1 60); do \
 	  curl -fsS "$${AWS_ENDPOINT_URL}/_localstack/health" >/dev/null 2>&1 && break; \
