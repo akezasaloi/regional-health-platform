@@ -114,7 +114,7 @@ seed: check-token check-aiven check-tfdir
 	@$(ROOT)/scripts/seed.sh
 
 verify: check-tfdir
-	@$(ROOT)/scripts/verify.sh
+	@bash "$(ROOT)/scripts/verify.sh" || { echo "FAIL: make verify (rc=$$?)" >&2; exit 1; }
 
 down: check-token check-tfdir
 	@mkdir -p "$(EVIDENCE_IAC)"

@@ -254,6 +254,11 @@ async function boot() {
   const secret = await loadDbSecrets();
   if (secret) {
     applySecret(secret);
+    // eslint-disable-next-line no-console
+    console.log(`boot: loaded secret ${secretSourceArn()}`);
+  } else {
+    // eslint-disable-next-line no-console
+    console.log('boot: no DB_SECRET_ARN, using MYSQL_* env');
   }
   app.listen(PORT, () => {
     // eslint-disable-next-line no-console

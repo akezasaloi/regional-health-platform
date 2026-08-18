@@ -321,15 +321,27 @@ jobs:
             -e AWS_DEFAULT_REGION=us-east-1 \
             -e DB_SECRET_ARN="$SECRET_ARN" \
             "$AMI_TAG"
-          echo "sidecar logs:"
-          for i in $(seq 1 30); do
-            if curl -fsS http://127.0.0.1:3000/healthz >/dev/null; then
-              echo "OK: sidecar /healthz after ${i} tries"
+          echo "ARN length=${#SECRET_ARN}"
+          for i in $(seq 1 45); do
+            if curl -fsS http://127.0.0.1:3000/readyz >/dev/null; then
+              echo "OK: sidecar /readyz after ${i} tries"
+              curl -fsS http://127.0.0.1:3000/debug/secret-source || true
+              echo
               exit 0
             fi
             sleep 2
           done
+          echo "FAIL: sidecar never became ready on :3000"
+          echo "--- /healthz ---"
+          curl -sS -D- http://127.0.0.1:3000/healthz || true
+          echo
+          echo "--- /readyz ---"
+          curl -sS -D- http://127.0.0.1:3000/readyz || true
+          echo
+          echo "--- /debug/secret-source ---"
+          curl -sS -D- http://127.0.0.1:3000/debug/secret-source || true
+          echo
+          echo "--- docker logs ---"
           docker logs capacity-api 2>&1 | tail -80 || true
-          echo "FAIL: sidecar never became healthy on :3000"
           exit 1
       - run: make verify

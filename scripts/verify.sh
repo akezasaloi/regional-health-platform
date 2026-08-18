@@ -46,16 +46,23 @@ mkdir -p "${EVIDENCE_IAC}" "${EVIDENCE_SEC}"
 
 echo "== 1/5 terraform plan is empty after apply =="
 pushd "${TF_DIR}" >/dev/null
-# detailed-exitcode: 0 = empty, 1 = error, 2 = changes pending
-set +e
-"${TF[@]}" plan -detailed-exitcode -no-color > "${EVIDENCE_IAC}/plan-after-apply.txt" 2>&1
-PLAN_RC=$?
-set -e
+# `cmd || rc=$?` keeps set -e from aborting the script with terraform's
+# detailed-exitcode 2 (changes pending).
+PLAN_RC=0
+"${TF[@]}" plan -detailed-exitcode -no-color -refresh=false \
+  > "${EVIDENCE_IAC}/plan-after-apply.txt" 2>&1 || PLAN_RC=$?
 popd >/dev/null
+echo "    plan rc=${PLAN_RC} (0 empty, 2 changes, other error)"
 case "${PLAN_RC}" in
   0) echo "OK: plan empty" ;;
-  2) fail "plan is not empty — see ${EVIDENCE_IAC}/plan-after-apply.txt" ;;
-  *) fail "terraform plan errored (rc=${PLAN_RC}) — see ${EVIDENCE_IAC}/plan-after-apply.txt" ;;
+  2)
+    fail "plan is not empty — see ${EVIDENCE_IAC}/plan-after-apply.txt"
+    sed -n '1,80p' "${EVIDENCE_IAC}/plan-after-apply.txt" >&2 || true
+    ;;
+  *)
+    fail "terraform plan errored (rc=${PLAN_RC}) — see ${EVIDENCE_IAC}/plan-after-apply.txt"
+    sed -n '1,80p' "${EVIDENCE_IAC}/plan-after-apply.txt" >&2 || true
+    ;;
 esac
 
 echo "== 2/5 GET /healthz → 200 =="
