@@ -111,27 +111,52 @@ docker compose down -v
 
 ---
 
-## Assignment 2 — rehost on LocalStack
+## Assignment 2 — rehost on LocalStack + Aiven MySQL
 
 Linux only (use the Codespace: ⋯ → Change machine type → **4-core / 16 GB**).
 Docker Desktop on macOS cannot reach LocalStack's EC2 containers.
 
+LocalStack Hobby does **not** include RDS or ECR. The managed database is
+[Aiven MySQL](https://aiven.io) (free plan, no credit card). The image is built
+and scanned in CI and used directly — no registry. Everything else is unchanged:
+Secrets Manager, EC2, scanning gates, pipeline.
+
+### Aiven (about 5 minutes, personal account — one free MySQL per account)
+
+1. Sign up at [aiven.io](https://aiven.io). No credit card.
+2. Create a MySQL service on the **Free** plan. Wait until it is running.
+3. Copy host, port, user (`avnadmin`), and password. Download the CA certificate.
+4. Put them in your **local environment** and in **GitHub Actions secrets**. Never git.
+
 ```bash
-export LOCALSTACK_AUTH_TOKEN=...  
+export LOCALSTACK_AUTH_TOKEN=...          # Hobby token from app.localstack.cloud
+export AIVEN_HOST=mysql-….a.aivencloud.com
+export AIVEN_PORT=…                       # not 3306
+export AIVEN_USER=avnadmin
+export AIVEN_PASSWORD=…                   # never commit
+export AIVEN_DB=capacity_lab
+export AIVEN_CA_PATH=./secrets/aiven-ca.pem   # optional; VERIFY_CA if set
+
 cp -R terraform/envs/_template terraform/envs/$USER
 make up TF_WHO=$USER
 make verify
 make down
 ```
 
-### Declared AWS sizes (IaC — LocalStack does not enforce them)
+The free service **sleeps when idle** — open it in the Aiven console (or hit it
+once) before `make up`. Limits (1 GB storage, 76 connections) are enough for
+10k patients.
+
+GitHub Actions secrets (same names, for Arsema's pipeline):
+`LOCALSTACK_AUTH_TOKEN`, `AIVEN_HOST`, `AIVEN_PORT`, `AIVEN_USER`,
+`AIVEN_PASSWORD`, `AIVEN_DB`.
+
+### Declared sizes
 
 | Resource | Value | Why |
 |---|---|---|
-| RDS instance class | `db.t3.micro` (2 vCPU / 1 GiB) | 10,000 patients is tiny; smallest general-purpose class fits |
-| RDS storage | `20` GiB `gp3` | RDS-MySQL minimum; dataset is a few MB |
-| RDS engine | MySQL `8.0` | matches A1; real InnoDB for OPS-2202/2203 |
-| Multi-AZ | `false` | lab single-AZ — availability trade-off accepted |
+| Aiven MySQL | Free plan (1 GB, 76 connections) | instructor: real managed MySQL; LocalStack RDS is paid |
+| Seed size | 10,000 patients | C2; fits in 1 GB with room to spare |
 | EC2 instance type | `t3.small` (2 vCPU / 2 GiB) | headroom for nginx + app; `t3.micro` is too tight |
 | App container memory | `--memory=512m` | cgroup ceiling that makes OPS-2204 OOM reproducible |
 

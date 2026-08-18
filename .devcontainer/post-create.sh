@@ -28,7 +28,7 @@ export PATH="${HOME}/.local/bin:${PATH}"
 grep -q '.local/bin' "${HOME}/.bashrc" 2>/dev/null \
   || echo 'export PATH="$HOME/.local/bin:$PATH"' >> "${HOME}/.bashrc"
 
-echo ">> post-create done. Next: export LOCALSTACK_AUTH_TOKEN=... && make help"
+echo ">> post-create done. Next: export LOCALSTACK_AUTH_TOKEN=... AIVEN_HOST=... AIVEN_PORT=... AIVEN_PASSWORD=... && make help"
 localstack --version || true
 tflocal --version || true
 gitleaks version || true
