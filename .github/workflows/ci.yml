@@ -219,29 +219,35 @@ jobs:
       # Diagnostics: LocalStack answered "couldn't find resource" for a
       # well-formed AMI id. Print what it actually sees before apply. Non-fatal
       # so the real failure still surfaces.
+      # Diagnostics: LocalStack answers "couldn't find resource" for a
+      # well-formed AMI id. Write what it actually sees to the job summary, so
+      # it renders on the run page instead of hiding in a collapsed log step.
       - name: diagnose LocalStack AMI registration
         continue-on-error: true
         env:
           AMI_TAG: ${{ needs.build-and-scan-image.outputs.ami_tag }}
           AMI_ID: ${{ needs.build-and-scan-image.outputs.ami_id }}
         run: |
-          echo "=== expected tag: $AMI_TAG / id: $AMI_ID ==="
-          echo "=== local images tagged localstack-ec2/* ==="
-          docker images --format '{{.Repository}}:{{.Tag}}' | grep localstack-ec2 || echo "  NONE"
-          echo "=== localstack edition + ec2 status ==="
-          curl -s http://localhost:4566/_localstack/health | head -c 2000; echo
-          echo "=== localstack container: is the docker socket mounted? ==="
-          docker ps --filter name=localstack --format '{{.Image}} {{.Status}}'
-          docker inspect "$(docker ps -q --filter name=localstack | head -1)" \
-            --format '{{range .Mounts}}{{.Source}} -> {{.Destination}}{{"\n"}}{{end}}' || true
-          echo "=== effective EC2 config inside LocalStack ==="
+          exec > >(tee -a "$GITHUB_STEP_SUMMARY") 2>&1
+          echo '## LocalStack AMI diagnostics'
+          echo '```'
+          echo "expected tag : $AMI_TAG"
+          echo "expected id  : $AMI_ID"
+          echo
+          echo "--- images tagged localstack-ec2/* on the daemon ---"
+          docker images --format '{{.Repository}}:{{.Tag}}' | grep localstack-ec2 || echo "NONE"
+          echo
+          echo "--- effective EC2 config inside LocalStack ---"
           curl -s http://localhost:4566/_localstack/diagnose \
-            | python3 -c 'import json,sys;c=json.load(sys.stdin).get("config",{});print({k:v for k,v in c.items() if "EC2" in k})' \
-            || echo "  (diagnose unavailable)"
-          echo "=== AMIs LocalStack knows ==="
-          awslocal ec2 describe-images --query 'Images[].{Id:ImageId,Name:Name}' --output table || true
-          echo "=== describe just ours ==="
-          awslocal ec2 describe-images --image-ids "$AMI_ID" || true
+            | python3 -c 'import json,sys;c=json.load(sys.stdin).get("config",{});[print(f"{k}={v}") for k,v in sorted(c.items()) if "EC2" in k]' \
+            || echo "diagnose unavailable"
+          echo
+          echo "--- does LocalStack know our AMI? ---"
+          awslocal ec2 describe-images --image-ids "$AMI_ID" 2>&1 | head -20
+          echo
+          echo "--- custom AMIs (localstack-ec2 backed) LocalStack lists ---"
+          awslocal ec2 describe-images --query "Images[?contains(Name, 'app') || contains(ImageId, '${AMI_ID#ami-}')]" 2>&1 | head -20
+          echo '```'
       - run: make bootstrap
       - run: tflocal -chdir="$TF_DIR" init -backend-config=backend.hcl
       - run: make up
