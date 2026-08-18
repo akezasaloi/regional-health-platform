@@ -4,13 +4,18 @@
 # -----------------------------------------------------------------------------
 # Seeds the capacity_lab MySQL database with representative production-scale
 # data so the local environment behaves like the real service:
-#   * patients : 100,000 rows
+#   * patients : 100,000 rows locally (A1). A2 cloud seed sets ROW_COUNT=10000
+#     via scripts/seed.sh — do not hardcode; it is a documented variable (C2).
 #   * hospitals: 5 rows
 #
 # Intended to be executed from INSIDE the capacity-api container, which has the
 # mysql client installed and can resolve `mysql-db` on the compose network:
 #
 #     docker compose exec capacity-api bash /usr/local/bin/seed.sh
+#
+# Assignment 2 (RDS): do not call this against LocalStack RDS directly.
+# scripts/seed.sh generates a dump in a throwaway mysql:8.0 and restores it
+# with mysqldump | mysql (Hobby has no Cloud Pods / RDS snapshots).
 #
 # Re-runnable: it DROPs and recreates the tables each run.
 # =============================================================================

@@ -109,4 +109,32 @@ given ticket is part of the exercise.
 docker compose down -v
 ```
 
-Good luck, on-call. 📟
+---
+
+## Assignment 2 — rehost on LocalStack
+
+Linux only (use the Codespace: ⋯ → Change machine type → **4-core / 16 GB**).
+Docker Desktop on macOS cannot reach LocalStack's EC2 containers.
+
+```bash
+export LOCALSTACK_AUTH_TOKEN=...  
+cp -R terraform/envs/_template terraform/envs/$USER
+make up TF_WHO=$USER
+make verify
+make down
+```
+
+### Declared AWS sizes (IaC — LocalStack does not enforce them)
+
+| Resource | Value | Why |
+|---|---|---|
+| RDS instance class | `db.t3.micro` (2 vCPU / 1 GiB) | 10,000 patients is tiny; smallest general-purpose class fits |
+| RDS storage | `20` GiB `gp3` | RDS-MySQL minimum; dataset is a few MB |
+| RDS engine | MySQL `8.0` | matches A1; real InnoDB for OPS-2202/2203 |
+| Multi-AZ | `false` | lab single-AZ — availability trade-off accepted |
+| EC2 instance type | `t3.small` (2 vCPU / 2 GiB) | headroom for nginx + app; `t3.micro` is too tight |
+| App container memory | `--memory=512m` | cgroup ceiling that makes OPS-2204 OOM reproducible |
+
+`ROW_COUNT` for the cloud seed is **10000** (C2). Local compose still defaults to 100000.
+
+See `terraform/README.md`, `CONTRIBUTIONS.md`, and `FIDELITY.md`.

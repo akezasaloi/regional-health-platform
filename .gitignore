@@ -21,18 +21,30 @@ Thumbs.db
 *.log
 load-tests/results/
 
-# Terraform / LocalStack
+# Terraform / LocalStack — state is a credential store, never commit it
 .terraform/
-*.tfstate
-*.tfstate.*
-.tflocal/
-terraform.tfstate.backup
-evidence/**/*.mp4
-
-!evidence/
-!evidence/**
-
-# Terraform
 **/.terraform/
 *.tfstate
 *.tfstate.*
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.tflocal/
+.terraformrc
+terraform.rc
+
+# A2 evidence (override the *.log ignore so apply.log / seed.log / boot.log track)
+!evidence/
+!evidence/**
+!evidence/**/*.log
+!evidence/**/*.txt
+!evidence/**/*.json
+# Loom / screencaps stay out of git (submit as links)
+evidence/**/*.mp4
+
+# Keep generated dumps out of git
+/tmp/
+*.dump.sql
