@@ -8,14 +8,19 @@ RUN apt-get update \
 
 WORKDIR /usr/src/app
 
-COPY package.json ./
+COPY --chown=node:node package.json ./
 RUN npm install --omit=dev
 
-COPY . .
+COPY --chown=node:node . .
 
 # The seed script lives in ../data-seed and is bind-mounted at runtime by
 # docker-compose to /usr/local/bin/seed.sh (it is outside this build context,
 # so it cannot be COPYed here).
+
+# DS-0002: drop root for the runtime process. node:20-slim ships a non-root
+# `node` user. This sits after npm install (which needs root to write into
+# the image) and before CMD, so only the running app is unprivileged.
+USER node
 
 EXPOSE 3000
 
