@@ -45,9 +45,9 @@ fi
 mkdir -p "${EVIDENCE_IAC}" "${EVIDENCE_SEC}"
 
 echo "== 1/5 terraform plan is empty after apply =="
-# Match `make up`: tflocal -chdir=$TF_DIR plan (not pushd).
+echo "    terraform bin: $("${TF[@]}" version -json 2>/dev/null | jq -r .terraform_version 2>/dev/null || command -v "${TF[0]}")"
 PLAN_RC=0
-"${TF[@]}" -chdir="${TF_DIR}" plan -detailed-exitcode -no-color \
+"${TF[@]}" -chdir="${TF_DIR}" plan -no-color -detailed-exitcode \
   > "${EVIDENCE_IAC}/plan-after-apply.txt" 2>&1 || PLAN_RC=$?
 echo "    plan rc=${PLAN_RC} (0 empty, 2 changes, other error)"
 case "${PLAN_RC}" in
@@ -91,8 +91,11 @@ else
 fi
 
 echo "== 5/5 gitleaks on repo → zero findings =="
+# Deploy checkout is shallow (fetch-depth 1); git-history mode errors. The
+# gitleaks job already scanned full history. Here scan the tree, skipping
+# generated evidence (see .gitleaks.toml).
 set +e
-gitleaks detect --source "${ROOT}" --no-banner \
+gitleaks detect --no-git --source "${ROOT}" --no-banner \
   --report-path "${EVIDENCE_SEC}/gitleaks.json" \
   --report-format json
 GL_RC=$?
@@ -104,8 +107,9 @@ else
 fi
 
 if [[ "${FAILED}" -ne 0 ]]; then
+  PLAN_HEAD="$(tr '\n' ' ' < "${EVIDENCE_IAC}/plan-after-apply.txt" 2>/dev/null | head -c 400 || true)"
   echo "verify: FAILED plan_rc=${PLAN_RC} healthz=${HZ_CODE:-?} readyz=${RZ_CODE:-?} secret=${SRC:-<empty>} gitleaks=${GL_RC:-?}" >&2
-  echo "::error::verify failed plan_rc=${PLAN_RC} healthz=${HZ_CODE:-?} readyz=${RZ_CODE:-?} secret=${SRC:-<empty>} gitleaks=${GL_RC:-?}"
+  echo "::error::verify failed plan_rc=${PLAN_RC} healthz=${HZ_CODE:-?} readyz=${RZ_CODE:-?} gitleaks=${GL_RC:-?} plan=${PLAN_HEAD} secret=${SRC:-<empty>}"
   if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
     {
       echo '## make verify'
