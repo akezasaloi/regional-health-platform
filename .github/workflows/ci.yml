@@ -325,8 +325,9 @@ jobs:
           for i in $(seq 1 45); do
             if curl -fsS http://127.0.0.1:3000/readyz >/dev/null; then
               echo "OK: sidecar /readyz after ${i} tries"
-              curl -fsS http://127.0.0.1:3000/debug/secret-source || true
-              echo
+              SRC="$(curl -fsS http://127.0.0.1:3000/debug/secret-source || true)"
+              echo "secret-source: $SRC"
+              echo "$SRC" | jq -e '.arn | type == "string" and startswith("arn:aws:secretsmanager:")' >/dev/null
               exit 0
             fi
             sleep 2
@@ -344,4 +345,5 @@ jobs:
           echo "--- docker logs ---"
           docker logs capacity-api 2>&1 | tail -80 || true
           exit 1
-      - run: make verify
+      - name: C8 verify
+        run: bash scripts/verify.sh
