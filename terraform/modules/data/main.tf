@@ -14,8 +14,6 @@ resource "aws_db_instance" "mysql" {
   password            = random_password.db.result
   skip_final_snapshot = true
   publicly_accessible = false
-  # trivy-config fails HIGH without this. FIDELITY: LocalStack echoes
-  # storage_encrypted but does not actually encrypt at rest.
   storage_encrypted = true
 }
 
