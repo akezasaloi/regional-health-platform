@@ -149,11 +149,21 @@ jobs:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
         with:
           persist-credentials: false
+      # Build before LocalStack starts: its EC2 docker backend registers AMIs by
+      # scanning images tagged localstack-ec2/<name>:<ami-id>, so the image has
+      # to exist first. The scanned image lives on the build job's runner, not
+      # this one, so rebuild it here under the identical tag.
+      - env:
+          AMI_TAG: ${{ needs.build-and-scan-image.outputs.ami_tag }}
+        run: docker build -t "$AMI_TAG" ./api
       # in-runner mode: LocalStack starts as a container inside this runner and
       # is reached at localhost:4566. Nothing is hosted off-runner.
+      # EC2_VM_MANAGER=docker: without it EC2 runs a mock manager that only
+      # knows its own AMIs and answers "couldn't find resource" for ours.
       - uses: LocalStack/setup-localstack@7c8a0cb3405bc58be4c8f763f812aa000bc46303 # v0.3.2
         with:
           install-awslocal: 'true'
+          configuration: EC2_VM_MANAGER=docker
       # setup-localstack installs awslocal only. tflocal drives Terraform at
       # LocalStack; verify.sh check 5 shells out to gitleaks; seed.sh restores
       # the dump into Aiven with the mysql client.
@@ -170,12 +180,6 @@ jobs:
             sudo apt-get install -y --no-install-recommends mysql-client
           }
           mysql --version
-      # The scanned image lives on the build job's runner, not this one.
-      # LocalStack's EC2 emulation resolves the AMI tag against the local docker
-      # daemon, so rebuild it here under the identical tag.
-      - env:
-          AMI_TAG: ${{ needs.build-and-scan-image.outputs.ami_tag }}
-        run: docker build -t "$AMI_TAG" ./api
       # envs/_template declares an empty `backend "s3" {}` and expects a
       # backend.hcl. use_path_style matters: bootstrap/tfstate.sh creates the
       # bucket path-style via awslocal, and without it PutObject returns
