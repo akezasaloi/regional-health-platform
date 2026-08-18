@@ -12,6 +12,16 @@ on:
     secrets:
       LOCALSTACK_AUTH_TOKEN:
         required: false
+      AIVEN_HOST:
+        required: false
+      AIVEN_PORT:
+        required: false
+      AIVEN_USER:
+        required: false
+      AIVEN_PASSWORD:
+        required: false
+      AIVEN_DB:
+        required: false
   workflow_dispatch:
 
 permissions:
@@ -33,7 +43,7 @@ jobs:
       - uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2.3.9
         env:
           # Required on pull_request events: the action reads the PR's commit
-          # range through the API. This is the ephemeral per-job token, not a
+          # range through the API. This is the short-lived per-job token, not a
           # stored repo secret, and it is capped by permissions: contents: read
           # above. No deployment credential is exposed to this job.
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -109,14 +119,20 @@ jobs:
       contents: read
     env:
       LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN }}
+      # MySQL lives on Aiven — LocalStack Hobby 501s on RDS. The Makefile maps
+      # AIVEN_* to TF_VAR_db_* and terraform writes them into Secrets Manager.
+      AIVEN_HOST: ${{ secrets.AIVEN_HOST }}
+      AIVEN_PORT: ${{ secrets.AIVEN_PORT }}
+      AIVEN_USER: ${{ secrets.AIVEN_USER }}
+      AIVEN_PASSWORD: ${{ secrets.AIVEN_PASSWORD }}
+      AIVEN_DB: ${{ secrets.AIVEN_DB }}
       AWS_ACCESS_KEY_ID: test
       AWS_SECRET_ACCESS_KEY: test
       AWS_DEFAULT_REGION: us-east-1
-      # The Makefile derives its Terraform root from TF_WHO ($USER by default).
-      # A runner's $USER is "runner", so point it at the committed CI root.
-      TF_WHO: ci
-      # The root module requires app_ami_id; hand it the tag the build job made.
       TF_VAR_app_ami_id: ${{ needs.build-and-scan-image.outputs.ami_tag }}
+      # A runner's $USER is "runner", so the Makefile's default root
+      # (terraform/envs/$USER) does not exist. Point it at the template.
+      TF_DIR: ${{ github.workspace }}/terraform/envs/_template
     steps:
       - uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
         with:
@@ -130,7 +146,8 @@ jobs:
         with:
           install-awslocal: 'true'
       # setup-localstack installs awslocal only. tflocal drives Terraform at
-      # LocalStack, and verify.sh's fifth C8 check shells out to gitleaks.
+      # LocalStack; verify.sh check 5 shells out to gitleaks; seed.sh restores
+      # the dump into Aiven with the mysql client.
       - run: pipx install terraform-local
       - env:
           GITLEAKS_VERSION: 8.24.3
@@ -138,11 +155,35 @@ jobs:
           curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
             | sudo tar -xz -C /usr/local/bin gitleaks
           gitleaks version
-      # The image lives on the build job's runner, not this one. LocalStack's
-      # EC2 emulation resolves the AMI tag against the local docker daemon, so
-      # rebuild it here under the identical tag.
+      - run: |
+          command -v mysql >/dev/null || {
+            sudo apt-get update -qq
+            sudo apt-get install -y --no-install-recommends mysql-client
+          }
+          mysql --version
+      # The scanned image lives on the build job's runner, not this one.
+      # LocalStack's EC2 emulation resolves the AMI tag against the local docker
+      # daemon, so rebuild it here under the identical tag.
       - env:
           AMI_TAG: ${{ needs.build-and-scan-image.outputs.ami_tag }}
         run: docker build -t "$AMI_TAG" ./api
+      # envs/_template declares an empty `backend "s3" {}` and expects a
+      # backend.hcl. use_path_style matters: bootstrap/tfstate.sh creates the
+      # bucket path-style via awslocal, and without it PutObject returns
+      # NoSuchBucket even though init can read the state.
+      - run: |
+          cat > "$TF_DIR/backend.hcl" <<'HCL'
+          bucket         = "tfstate-regional-health"
+          key            = "envs/ci/terraform.tfstate"
+          region         = "us-east-1"
+          dynamodb_table = "tfstate-lock"
+          encrypt        = true
+          use_path_style = true
+          HCL
+      # bootstrap creates the state bucket + lock table, so init has somewhere
+      # to write. `make up` re-runs a bare `init`, which reuses this cached
+      # backend config (standard partial-configuration flow).
+      - run: make bootstrap
+      - run: tflocal -chdir="$TF_DIR" init -backend-config=backend.hcl
       - run: make up
       - run: make verify
