@@ -178,7 +178,23 @@ jobs:
           region         = "us-east-1"
           dynamodb_table = "tfstate-lock"
           encrypt        = true
-          use_path_style = true
+
+          # tflocal rewrites the *provider* to talk to LocalStack but leaves the
+          # *backend* pointed at real AWS, so init died validating "test" against
+          # the real STS (InvalidClientTokenId). Point the backend at LocalStack
+          # and skip the credential round-trips that have no meaning here.
+          use_path_style              = true
+          skip_credentials_validation = true
+          skip_metadata_api_check     = true
+          skip_region_validation      = true
+          skip_requesting_account_id  = true
+
+          endpoints = {
+            s3       = "http://localhost:4566"
+            dynamodb = "http://localhost:4566"
+            sts      = "http://localhost:4566"
+            iam      = "http://localhost:4566"
+          }
           HCL
       # bootstrap creates the state bucket + lock table, so init has somewhere
       # to write. `make up` re-runs a bare `init`, which reuses this cached
