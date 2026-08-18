@@ -21,5 +21,13 @@ Thumbs.db
 *.log
 load-tests/results/
 
+# Terraform / LocalStack
+.terraform/
+*.tfstate
+*.tfstate.*
+.tflocal/
+terraform.tfstate.backup
+evidence/**/*.mp4
+
 !evidence/
 !evidence/**
