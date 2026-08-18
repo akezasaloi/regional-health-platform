@@ -212,6 +212,28 @@ jobs:
       # bootstrap creates the state bucket + lock table, so init has somewhere
       # to write. `make up` re-runs a bare `init`, which reuses this cached
       # backend config (standard partial-configuration flow).
+      # Diagnostics: LocalStack answered "couldn't find resource" for a
+      # well-formed AMI id. Print what it actually sees before apply. Non-fatal
+      # so the real failure still surfaces.
+      - name: diagnose LocalStack AMI registration
+        continue-on-error: true
+        env:
+          AMI_TAG: ${{ needs.build-and-scan-image.outputs.ami_tag }}
+          AMI_ID: ${{ needs.build-and-scan-image.outputs.ami_id }}
+        run: |
+          echo "=== expected tag: $AMI_TAG / id: $AMI_ID ==="
+          echo "=== local images tagged localstack-ec2/* ==="
+          docker images --format '{{.Repository}}:{{.Tag}}' | grep localstack-ec2 || echo "  NONE"
+          echo "=== localstack edition + ec2 status ==="
+          curl -s http://localhost:4566/_localstack/health | head -c 2000; echo
+          echo "=== localstack container: is the docker socket mounted? ==="
+          docker ps --filter name=localstack --format '{{.Image}} {{.Status}}'
+          docker inspect "$(docker ps -q --filter name=localstack | head -1)" \
+            --format '{{range .Mounts}}{{.Source}} -> {{.Destination}}{{"\n"}}{{end}}' || true
+          echo "=== AMIs LocalStack knows ==="
+          awslocal ec2 describe-images --query 'Images[].{Id:ImageId,Name:Name}' --output table || true
+          echo "=== describe just ours ==="
+          awslocal ec2 describe-images --image-ids "$AMI_ID" || true
       - run: make bootstrap
       - run: tflocal -chdir="$TF_DIR" init -backend-config=backend.hcl
       - run: make up
