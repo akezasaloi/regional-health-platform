@@ -13,9 +13,8 @@
 #
 #     docker compose exec capacity-api bash /usr/local/bin/seed.sh
 #
-# Assignment 2 (RDS): do not call this against LocalStack RDS directly.
 # scripts/seed.sh generates a dump in a throwaway mysql:8.0 and restores it
-# with mysqldump | mysql (Hobby has no Cloud Pods / RDS snapshots).
+# with mysqldump | mysql over TLS (Hobby has no RDS / Cloud Pods).
 #
 # Re-runnable: it DROPs and recreates the tables each run.
 # =============================================================================

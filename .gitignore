@@ -7,6 +7,15 @@ yarn-error.log*
 .env
 .env.local
 *.local
+terraform.tfvars
+*.auto.tfvars
+!*.tfvars.example
+!*.auto.tfvars.example
+
+# Aiven TLS material — download from the service page, never commit
+secrets/*.pem
+secrets/*.crt
+*.pem
 
 # IDE
 .idea/

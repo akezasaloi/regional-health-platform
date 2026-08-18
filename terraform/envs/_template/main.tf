@@ -4,6 +4,8 @@
 #   # set key = "envs/<you>/terraform.tfstate"
 #   tflocal init -backend-config=backend.hcl
 #   make up TF_WHO=<you>
+#
+# Aiven connection values are never committed. `make up` maps AIVEN_* → TF_VAR_db_*.
 
 terraform {
   required_version = ">= 1.6"
@@ -37,8 +39,44 @@ variable "app_ami_id" {
   description = "LocalStack EC2 AMI tag, form localstack-ec2/app:ami-<12hex>"
 }
 
+# Aiven MySQL (free plan). Pass via environment — never commit values:
+#   TF_VAR_db_host / AIVEN_HOST, TF_VAR_db_port / AIVEN_PORT,
+#   TF_VAR_db_password / AIVEN_PASSWORD. `make up` exports TF_VAR_* for you.
+variable "db_host" {
+  type        = string
+  description = "Aiven MySQL hostname. Never commit."
+}
+
+variable "db_port" {
+  type        = number
+  description = "Aiven MySQL port (not 3306 on the free plan)."
+}
+
+variable "db_username" {
+  type        = string
+  description = "Aiven MySQL user."
+  default     = "avnadmin"
+}
+
+variable "db_password" {
+  type        = string
+  sensitive   = true
+  description = "Aiven MySQL password. Never commit."
+}
+
+variable "db_name" {
+  type        = string
+  description = "Logical database name stored in the Secrets Manager envelope."
+  default     = "capacity_lab"
+}
+
 module "data" {
-  source = "../../modules/data"
+  source      = "../../modules/data"
+  db_host     = var.db_host
+  db_port     = var.db_port
+  db_username = var.db_username
+  db_password = var.db_password
+  db_name     = var.db_name
 }
 
 module "service" {
