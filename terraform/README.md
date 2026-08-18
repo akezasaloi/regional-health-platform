@@ -6,7 +6,7 @@ later PRs — do not copy-paste `aws_db_instance` / `aws_instance` into an env.
 | Path | Owner | PR |
 |---|---|---|
 | `modules/data/` | Saloi | PR-A — RDS MySQL 8.0 + Secrets Manager |
-| `modules/service/` | Berissa | PR-B — EC2 + nginx + SG + ALB IaC |
+| `modules/service/` | Berissa | PR-B — EC2 + SG (ALB removed; ELBv2 not on LocalStack Hobby) |
 | `envs/_template/` | Yordanos | this PR — copy to `envs/<you>/` |
 | `backend.example.hcl` | Yordanos | this PR — S3 + DynamoDB lock |
 

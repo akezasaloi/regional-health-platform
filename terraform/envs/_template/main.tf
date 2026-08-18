@@ -37,26 +37,16 @@ variable "app_ami_id" {
   description = "LocalStack EC2 AMI tag, form localstack-ec2/app:ami-<12hex>"
 }
 
-# ACM certificate for the ALB HTTPS listener. On real AWS this is issued by
-# ACM; on LocalStack Hobby the cert is a stub, so a mock ARN literal is fine.
-# Override per env in terraform.tfvars if you provision a real cert.
-variable "certificate_arn" {
-  type        = string
-  description = "ACM certificate ARN for the ALB HTTPS listener."
-  default     = "arn:aws:acm:us-east-1:000000000000:certificate/localstack-stub"
-}
-
 module "data" {
   source = "../../modules/data"
 }
 
 module "service" {
-  source          = "../../modules/service"
-  app_ami_id      = var.app_ami_id
-  secret_arn      = module.data.secret_arn
-  db_endpoint     = module.data.db_endpoint
-  db_port         = module.data.db_port
-  certificate_arn = var.certificate_arn
+  source      = "../../modules/service"
+  app_ami_id  = var.app_ami_id
+  secret_arn  = module.data.secret_arn
+  db_endpoint = module.data.db_endpoint
+  db_port     = module.data.db_port
 }
 
 output "db_endpoint" {
@@ -76,8 +66,8 @@ output "instance_id" {
   value = module.service.instance_id
 }
 
-# Traffic is nginx on the instance (LocalStack ELBv2 health checks are untestable).
+# Direct to EC2 public IP (ELBv2 removed — not on LocalStack Hobby license).
 # Override with APP_URL if the output is not reachable from the host.
 output "app_url" {
-  value = "http://${module.service.lb_dns_name}"
+  value = "http://${module.service.app_host}:${module.service.app_port}"
 }

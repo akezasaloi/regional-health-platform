@@ -11,17 +11,17 @@ variable "instance_type" {
 
 variable "secret_arn" {
   type        = string
-  description = "Secrets Manager ARN for the RDS credential envelope (C4 wiring)."
+  description = "Secrets Manager ARN for the DB credential envelope (C4 wiring)."
 }
 
 variable "db_endpoint" {
   type        = string
-  description = "RDS hostname from module.data."
+  description = "MySQL hostname from module.data."
 }
 
 variable "db_port" {
   type        = number
-  description = "RDS port."
+  description = "MySQL port from module.data."
   default     = 3306
 }
 
@@ -35,9 +35,4 @@ variable "vpc_cidr" {
   type        = string
   description = "VPC CIDR for security group ingress (never 0.0.0.0/0)."
   default     = "10.0.0.0/16"
-}
-
-variable "certificate_arn" {
-  type        = string
-  description = "ACM certificate ARN for the ALB HTTPS listener."
 }
