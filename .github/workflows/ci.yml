@@ -142,6 +142,10 @@ jobs:
       # A runner's $USER is "runner", so the Makefile's default root
       # (terraform/envs/$USER) does not exist. Point it at the template.
       TF_DIR: ${{ github.workspace }}/terraform/envs/_template
+      # EC2 must use the docker VM manager to register images tagged
+      # localstack-ec2/<name>:<ami-id> as AMIs. Set on the job as well as the
+      # action input: the CLI reads config from the environment directly.
+      EC2_VM_MANAGER: docker
     steps:
       - uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
         with:
@@ -230,6 +234,10 @@ jobs:
           docker ps --filter name=localstack --format '{{.Image}} {{.Status}}'
           docker inspect "$(docker ps -q --filter name=localstack | head -1)" \
             --format '{{range .Mounts}}{{.Source}} -> {{.Destination}}{{"\n"}}{{end}}' || true
+          echo "=== effective EC2 config inside LocalStack ==="
+          curl -s http://localhost:4566/_localstack/diagnose \
+            | python3 -c 'import json,sys;c=json.load(sys.stdin).get("config",{});print({k:v for k,v in c.items() if "EC2" in k})' \
+            || echo "  (diagnose unavailable)"
           echo "=== AMIs LocalStack knows ==="
           awslocal ec2 describe-images --query 'Images[].{Id:ImageId,Name:Name}' --output table || true
           echo "=== describe just ours ==="
