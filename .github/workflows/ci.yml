@@ -112,6 +112,11 @@ jobs:
       AWS_ACCESS_KEY_ID: test
       AWS_SECRET_ACCESS_KEY: test
       AWS_DEFAULT_REGION: us-east-1
+      # The Makefile derives its Terraform root from TF_WHO ($USER by default).
+      # A runner's $USER is "runner", so point it at the committed CI root.
+      TF_WHO: ci
+      # The root module requires app_ami_id; hand it the tag the build job made.
+      TF_VAR_app_ami_id: ${{ needs.build-and-scan-image.outputs.ami_tag }}
     steps:
       - uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
         with:
@@ -124,5 +129,20 @@ jobs:
       - uses: LocalStack/setup-localstack@7c8a0cb3405bc58be4c8f763f812aa000bc46303 # v0.3.2
         with:
           install-awslocal: 'true'
+      # setup-localstack installs awslocal only. tflocal drives Terraform at
+      # LocalStack, and verify.sh's fifth C8 check shells out to gitleaks.
+      - run: pipx install terraform-local
+      - env:
+          GITLEAKS_VERSION: 8.24.3
+        run: |
+          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
+            | sudo tar -xz -C /usr/local/bin gitleaks
+          gitleaks version
+      # The image lives on the build job's runner, not this one. LocalStack's
+      # EC2 emulation resolves the AMI tag against the local docker daemon, so
+      # rebuild it here under the identical tag.
+      - env:
+          AMI_TAG: ${{ needs.build-and-scan-image.outputs.ami_tag }}
+        run: docker build -t "$AMI_TAG" ./api
       - run: make up
       - run: make verify
