@@ -12,11 +12,15 @@
  *   GET  /api/patients/export        Full patient export for the analytics team
  *   GET  /api/audit/ping             Mongo audit-store health probe
  *   GET  /metrics                    Prometheus metrics
+ *   GET  /healthz                    liveness
+ *   GET  /readyz                     MySQL ping
+ *   GET  /debug/secret-source        Secrets Manager ARN used at boot (C3)
  */
 
 const express = require('express');
 const client = require('prom-client');
-const { getPool, getMongo } = require('./database');
+const { getPool, getMongo, applySecret } = require('./database');
+const { loadDbSecrets, secretSourceArn } = require('./secrets');
 
 const app = express();
 app.use(express.json());
@@ -70,6 +74,25 @@ app.use((req, res, next) => {
 // Health & metrics
 // ---------------------------------------------------------------------------
 app.get('/health', (_req, res) => res.json({ status: 'ok' }));
+app.get('/healthz', (_req, res) => res.json({ status: 'ok' }));
+
+app.get('/readyz', async (_req, res) => {
+  try {
+    await getPool().query('SELECT 1');
+    res.json({ status: 'ready' });
+  } catch (err) {
+    res.status(503).json({ status: 'not-ready', error: err.message });
+  }
+});
+
+app.get('/debug/secret-source', (_req, res) => {
+  const arn = secretSourceArn();
+  if (!arn) {
+    res.status(503).json({ arn: null, source: 'env' });
+    return;
+  }
+  res.json({ arn });
+});
 
 app.get('/metrics', async (_req, res) => {
   res.set('Content-Type', register.contentType);
@@ -225,9 +248,21 @@ app.get('/api/audit/ping', async (_req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// Boot
+// Boot — resolve DB creds from Secrets Manager before listen (C3)
 // ---------------------------------------------------------------------------
-app.listen(PORT, () => {
+async function boot() {
+  const secret = await loadDbSecrets();
+  if (secret) {
+    applySecret(secret);
+  }
+  app.listen(PORT, () => {
+    // eslint-disable-next-line no-console
+    console.log(`capacity-api listening on :${PORT} (metrics at /metrics)`);
+  });
+}
+
+boot().catch((err) => {
   // eslint-disable-next-line no-console
-  console.log(`capacity-api listening on :${PORT} (metrics at /metrics)`);
+  console.error('boot failed', err);
+  process.exit(1);
 });

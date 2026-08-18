@@ -48,8 +48,16 @@ mkdir -p "${EVIDENCE}"
 exec > >(tee -a "${EVIDENCE}/seed.log") 2>&1
 
 echo ">> reading Terraform outputs from ${TF_DIR}"
+if command -v tflocal >/dev/null 2>&1; then
+  TF=(tflocal)
+elif command -v terraform >/dev/null 2>&1; then
+  TF=(terraform)
+else
+  echo "FAIL: terraform/tflocal not on PATH" >&2
+  exit 1
+fi
 pushd "${TF_DIR}" >/dev/null
-SECRET_ARN="$(terraform output -raw secret_arn)"
+SECRET_ARN="$("${TF[@]}" output -raw secret_arn)"
 popd >/dev/null
 
 echo ">> fetching DB credentials from Secrets Manager ${SECRET_ARN}"

@@ -24,8 +24,18 @@ need() {
 
 need curl
 need jq
-need terraform
 need gitleaks
+
+# tflocal injects LocalStack endpoints. Plain `terraform plan` after a
+# tflocal apply talks to real AWS and fails check 1 in CI.
+if command -v tflocal >/dev/null 2>&1; then
+  TF=(tflocal)
+elif command -v terraform >/dev/null 2>&1; then
+  TF=(terraform)
+else
+  echo "FAIL: terraform/tflocal not on PATH" >&2
+  exit 1
+fi
 
 if [[ ! -d "${TF_DIR}" ]]; then
   echo "FAIL: no Terraform root at ${TF_DIR}" >&2
@@ -38,7 +48,7 @@ echo "== 1/5 terraform plan is empty after apply =="
 pushd "${TF_DIR}" >/dev/null
 # detailed-exitcode: 0 = empty, 1 = error, 2 = changes pending
 set +e
-terraform plan -detailed-exitcode -no-color > "${EVIDENCE_IAC}/plan-after-apply.txt" 2>&1
+"${TF[@]}" plan -detailed-exitcode -no-color > "${EVIDENCE_IAC}/plan-after-apply.txt" 2>&1
 PLAN_RC=$?
 set -e
 popd >/dev/null
@@ -50,7 +60,7 @@ esac
 
 echo "== 2/5 GET /healthz → 200 =="
 pushd "${TF_DIR}" >/dev/null
-APP_URL="${APP_URL:-$(terraform output -raw app_url 2>/dev/null || true)}"
+APP_URL="${APP_URL:-$("${TF[@]}" output -raw app_url 2>/dev/null || true)}"
 popd >/dev/null
 APP_URL="${APP_URL:-http://127.0.0.1:3000}"
 echo "    target ${APP_URL}"
