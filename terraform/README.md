@@ -1,16 +1,16 @@
 # Terraform layout (group platform)
 
-This directory is **conventions only** in PR-D. Resource modules land in
-later PRs — do not copy-paste `aws_db_instance` / `aws_instance` into an env.
+This directory holds the shared modules and env conventions. Do not copy-paste
+`aws_db_instance` / `aws_instance` into an env — compose the modules instead.
 
-| Path | Owner | PR |
+| Path | Owner | What |
 |---|---|---|
-| `modules/data/` | Saloi | PR-A — RDS MySQL 8.0 + Secrets Manager |
-| `modules/service/` | Berissa | PR-B — EC2 + nginx + SG + ALB IaC |
-| `envs/_template/` | Yordanos | this PR — copy to `envs/<you>/` |
-| `backend.example.hcl` | Yordanos | this PR — S3 + DynamoDB lock |
+| `modules/data/` | Saloi | Secrets Manager envelope around Aiven MySQL (no RDS; LocalStack Hobby returns 501) |
+| `modules/service/` | Berissa | EC2 + nginx + SG + ALB IaC |
+| `envs/_template/` | Yordanos | Copy to `envs/<you>/` |
+| `backend.example.hcl` | Yordanos | S3 + DynamoDB lock |
 
-## After PR-A and PR-B merge
+## After the modules exist
 
 ```bash
 cp -R terraform/envs/_template terraform/envs/$USER

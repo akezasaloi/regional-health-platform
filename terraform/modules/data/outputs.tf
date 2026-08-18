@@ -1,11 +1,11 @@
 output "db_endpoint" {
-  description = "RDS instance hostname. Does not include the port."
-  value       = aws_db_instance.mysql.address
+  description = "MySQL hostname (Aiven). Does not include the port."
+  value       = var.db_host
 }
 
 output "db_port" {
-  description = "RDS instance port."
-  value       = aws_db_instance.mysql.port
+  description = "MySQL port (Aiven)."
+  value       = var.db_port
 }
 
 output "secret_arn" {

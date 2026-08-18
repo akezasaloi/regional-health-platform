@@ -1,31 +1,29 @@
 variable "db_name" {
   type        = string
-  description = "Name of the MySQL database created on the RDS instance."
+  description = "Logical MySQL database name stored in the Secrets Manager envelope."
   default     = "capacity_lab"
 }
 
 variable "db_username" {
   type        = string
-  description = "Master username for the RDS instance. Stored in Secrets Manager, never in outputs."
-  default     = "app"
+  description = "MySQL username. Aiven Hobby uses avnadmin."
+  default     = "avnadmin"
 }
 
-variable "instance_class" {
+variable "db_host" {
   type        = string
-  description = "RDS instance class. db.t3.micro is the smallest class LocalStack round-trips."
-  default     = "db.t3.micro"
+  description = "Aiven MySQL hostname. This module does not provision the database."
 }
 
-variable "allocated_storage" {
+variable "db_port" {
   type        = number
-  description = "Allocated storage in GiB."
-  default     = 20
+  description = "Aiven MySQL port."
 }
 
-variable "engine_version" {
+variable "db_password" {
   type        = string
-  description = "MySQL engine version."
-  default     = "8.0"
+  sensitive   = true
+  description = "Aiven MySQL password. Stored in Secrets Manager, never outputted."
 }
 
 variable "secret_name" {

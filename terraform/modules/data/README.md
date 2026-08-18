@@ -1,21 +1,32 @@
-# data module — RDS MySQL + Secrets Manager
+# data module — Aiven MySQL envelope in Secrets Manager
 
-Provisions the Regional Health database plane for LocalStack (C1/C2/C3-envelope).
+Wraps an **external** Aiven MySQL connection in AWS Secrets Manager on LocalStack (C3). Does not provision RDS.
 
-- `random_password.db` generates a 24-char password (`special = false`) used by **both** RDS and the secret, so they cannot drift.
-- `aws_db_instance.mysql` is MySQL 8.0, `db.t3.micro`, 20 GiB gp3, not publicly accessible, `storage_encrypted = true` (trivy-config). LocalStack echoes that flag and does not encrypt.
-- `aws_secretsmanager_secret.db` stores the connection envelope under `regional-health/db`. Keys are exactly `engine`, `username`, `password`, `host`, `port`, `dbname` — the app reads these names.
+LocalStack Hobby returns `501` for `aws_db_instance` (RDS not licensed). The database is Aiven; this module only stores the connection envelope.
+
+- Envelope keys are exactly `engine`, `username`, `password`, `host`, `port`, `dbname` — the app reads these names. **The secret contract did not change.**
+- `db_username` defaults to `avnadmin`. `db_host`, `db_port`, and `db_password` (`sensitive = true`) are required — pass them from `terraform/envs/<who>/` / `AIVEN_*`.
 - Outputs are `db_endpoint`, `db_port`, `secret_arn`, `secret_name`. The password and `secret_string` are never outputted.
 
-Call from `terraform/envs/<who>/` as `module "data" { source = "../../modules/data" }`.
+Call from `terraform/envs/<who>/`:
+
+```hcl
+module "data" {
+  source      = "../../modules/data"
+  db_host     = var.db_host
+  db_port     = var.db_port
+  db_username = var.db_username
+  db_password = var.db_password
+}
+```
 
 ## Who reads the secret
 
 The secret value is never an output. Consumers:
 
-- **`modules/service` (PR-B)** — EC2 user-data gets `DB_SECRET_ARN` (the ARN only, never the password).
-- **`api/secrets.js` (individual env PRs)** — `GetSecretValue` at boot. Envelope keys are exactly `engine`, `username`, `password`, `host`, `port`, `dbname`.
+- **`modules/service`** — EC2 user-data gets `DB_SECRET_ARN` (the ARN only, never the password).
+- **`api/secrets.js`** — `GetSecretValue` at boot.
 
-No IAM principal is attached in this module. Lab/LocalStack uses static test credentials (`AWS_ACCESS_KEY_ID=test`). On real AWS the instance profile of `aws_instance.app` would be granted `secretsmanager:GetSecretValue` on `secret_arn`. LocalStack IMDS does not reliably serve `iam/security-credentials/` (FIDELITY).
+No IAM principal is attached in this module. Lab/LocalStack uses static test credentials (`AWS_ACCESS_KEY_ID=test`). On real AWS the instance profile of `aws_instance.app` would be granted `secretsmanager:GetSecretValue` on `secret_arn`.
 
-Rotation is out of scope: the password is generated once at apply and written to RDS and Secrets Manager together so they cannot drift.
+Rotation is out of scope: the password is the Aiven credential passed in at apply, written once to Secrets Manager.
