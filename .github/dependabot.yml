@@ -1,0 +1,16 @@
+# Keeps scanner action SHAs and base-image digests current. Bumps arrive as
+# reviewed PRs, so the pins in ci.yml stay 40-char SHAs and never drift to
+# @latest.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: docker
+    directory: /api
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5

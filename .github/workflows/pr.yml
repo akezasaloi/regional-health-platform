@@ -1,0 +1,20 @@
+# Thin PR trigger. All logic lives in ci.yml so individual repos can call the
+# same reusable workflow.
+#
+# NOTE: the brief's snippet said `secrets: inherit`. zizmor's `secrets-inherit`
+# audit fails that (medium), and the acceptance gate requires zizmor to exit 0.
+# Passing the single secret explicitly satisfies both, and matches the reviewer
+# checklist line "scanner jobs must never see LOCALSTACK_AUTH_TOKEN": with
+# `inherit`, every job in ci.yml is handed the whole secret store.
+name: pr
+
+on: [pull_request]
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+    secrets:
+      LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN }}

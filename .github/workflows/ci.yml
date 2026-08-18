@@ -1,0 +1,115 @@
+# Golden CI pipeline (C5): gitleaks -> trivy-config -> zizmor -> build+scan image -> apply -> verify.
+#
+# Pinning policy: every `uses:` is a 40-char commit SHA, never a tag. Dependabot
+# (.github/dependabot.yml) bumps them weekly through reviewed PRs.
+#
+# Secrets policy: the four scanner jobs run with no `secrets:` block and no
+# credentials in `env:`. Only deploy-and-verify is trusted with a token.
+name: ci
+
+on:
+  workflow_call:
+    secrets:
+      LOCALSTACK_AUTH_TOKEN:
+        required: false
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  gitleaks:
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+    steps:
+      - uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+        with:
+          fetch-depth: 0 # full history: a secret is only found in the commit that added it
+          persist-credentials: false
+      - uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2.3.9
+
+  trivy-config:
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+    steps:
+      - uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+        with:
+          persist-credentials: false
+      - uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: config
+          severity: HIGH,CRITICAL
+          exit-code: '1'
+
+  zizmor:
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+    steps:
+      - uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+        with:
+          persist-credentials: false
+      - run: pipx install zizmor==1.29.0 # pinned, same reason every uses: is a SHA
+      - run: zizmor .github/workflows/
+
+  build-and-scan-image:
+    needs: [gitleaks, trivy-config, zizmor]
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+    outputs:
+      ami_tag: ${{ steps.tag.outputs.ami_tag }}
+    steps:
+      - uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+        with:
+          persist-credentials: false
+      - id: tag
+        run: echo "ami_tag=localstack-ec2/app:ami-$(git rev-parse --short=12 HEAD)" >> "$GITHUB_OUTPUT"
+      - env:
+          AMI_TAG: ${{ steps.tag.outputs.ami_tag }}
+        run: docker build -t "$AMI_TAG" ./api
+      - uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: image
+          image-ref: ${{ steps.tag.outputs.ami_tag }}
+          severity: HIGH,CRITICAL
+          exit-code: '1'
+
+  deploy-and-verify:
+    needs: build-and-scan-image
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+    env:
+      LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN }}
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      AWS_DEFAULT_REGION: us-east-1
+    steps:
+      - uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+        with:
+          persist-credentials: false
+      # in-runner mode: LocalStack starts as a container inside this runner and
+      # is reached at localhost:4566. Nothing is hosted off-runner.
+      - uses: LocalStack/setup-localstack@7c8a0cb3405bc58be4c8f763f812aa000bc46303 # v0.3.2
+        with:
+          install-awslocal: 'true'
+      - run: make up
+      - run: make verify
