@@ -169,27 +169,60 @@ jobs:
         with:
           install-awslocal: 'true'
           skip-startup: 'true'
-      - name: Start LocalStack (docker VM manager + host docker.sock)
+      - name: Start LocalStack (CLI + docker.sock + docker VM manager)
         run: |
-          docker pull localstack/localstack-pro:latest
-          docker rm -f localstack-main 2>/dev/null || true
-          docker run -d --name localstack-main \
-            -p 4566:4566 \
-            -p 4510-4559:4510-4559 \
-            -e LOCALSTACK_AUTH_TOKEN \
-            -e EC2_VM_MANAGER=docker \
-            -e DEBUG=1 \
-            -e DOCKER_HOST=unix:///var/run/docker.sock \
-            -v /var/run/docker.sock:/var/run/docker.sock \
-            -v /tmp/localstack-volume:/var/lib/localstack \
-            localstack/localstack-pro:latest
-          for i in $(seq 1 60); do
-            curl -fsS http://localhost:4566/_localstack/health >/dev/null 2>&1 && break
-            sleep 2
+          : "${LOCALSTACK_AUTH_TOKEN:?FAIL: LOCALSTACK_AUTH_TOKEN is empty in Actions secrets — Pro/Hobby EC2 docker manager will not run}"
+          command -v localstack >/dev/null || pipx install localstack
+          localstack --version
+          # GitHub's docker.sock is often root:docker 660; the LocalStack
+          # container must be able to list host images to register AMIs.
+          sudo chmod 666 /var/run/docker.sock || true
+          export EC2_VM_MANAGER=docker
+          export DEBUG=1
+          export DOCKER_FLAGS="-v /var/run/docker.sock:/var/run/docker.sock --privileged"
+          # Official CLI pulls localstack-pro when AUTH_TOKEN is set and
+          # forwards EC2_VM_MANAGER into the container. Plain `docker run`
+          # mounted the socket but still listed zero docker AMIs (not even
+          # the Ubuntu AMI LocalStack downloads at boot) — that is mock mode.
+          localstack start -d
+          localstack wait -t 120
+          echo ">> LocalStack info (edition / license):"
+          curl -sS http://localhost:4566/_localstack/info || true
+          echo
+          echo ">> container env (EC2 / DOCKER / AUTH present?):"
+          docker ps --format '{{.Names}}' | head
+          CID="$(docker ps -q --filter ancestor=localstack/localstack-pro --latest || docker ps -q --filter name=localstack | head -1)"
+          echo "container=$CID"
+          docker exec "$CID" printenv | grep -E '^(EC2_|DOCKER_|LOCALSTACK_AUTH|LICENSE)' || true
+      - name: Wait for docker-backed AMIs (incl. our custom tag)
+        env:
+          AMI_TAG: ${{ needs.build-and-scan-image.outputs.ami_tag }}
+          AMI_ID: ${{ needs.build-and-scan-image.outputs.ami_id }}
+        run: |
+          # Docs canary: same image, AMI id from LocalStack's own examples.
+          docker tag "$AMI_TAG" localstack-ec2/app:ami-000001
+          echo "waiting for EC2 docker VM manager to list AMIs..."
+          for i in $(seq 1 40); do
+            n="$(awslocal ec2 describe-images --filters Name=tag:ec2_vm_manager,Values=docker --query 'length(Images)' --output text 2>/dev/null || echo 0)"
+            echo "  try $i: docker-backed AMI count=$n"
+            if [ "$n" != "0" ] && [ "$n" != "None" ] && [ -n "$n" ]; then
+              break
+            fi
+            sleep 3
           done
-          curl -fsS http://localhost:4566/_localstack/health >/dev/null \
-            || { echo "FAIL: LocalStack never became healthy"; docker logs localstack-main | tail -80; exit 1; }
-          echo ">> LocalStack healthy with EC2_VM_MANAGER=docker and docker.sock mounted"
+          echo "--- docker-backed AMIs ---"
+          awslocal ec2 describe-images --filters Name=tag:ec2_vm_manager,Values=docker \
+            --query 'Images[].{id:ImageId,name:Name}' --output table || true
+          if awslocal ec2 describe-images --image-ids "$AMI_ID" --query 'Images[0].ImageId' --output text 2>/dev/null | grep -qx "$AMI_ID"; then
+            echo "OK: LocalStack registered $AMI_ID"
+          elif awslocal ec2 describe-images --image-ids ami-000001 --query 'Images[0].ImageId' --output text 2>/dev/null | grep -qx ami-000001; then
+            echo "WARN: ami-000001 registered but $AMI_ID did not — AMI id format"
+            exit 1
+          else
+            echo "FAIL: still zero docker AMIs. Last LocalStack logs:"
+            docker logs "$(docker ps -q --filter name=localstack | head -1)" 2>&1 | tail -60
+            exit 1
+          fi
       # setup-localstack installs awslocal only. tflocal drives Terraform at
       # LocalStack; verify.sh check 5 shells out to gitleaks; seed.sh restores
       # the dump into Aiven with the mysql client.
@@ -254,25 +287,14 @@ jobs:
             echo '```'
             echo "expected tag : $AMI_TAG"
             echo "expected id  : $AMI_ID"
+            curl -sS http://localhost:4566/_localstack/info || true
             echo
-            echo "--- images tagged localstack-ec2/* on the daemon ---"
             docker images --format '{{.Repository}}:{{.Tag}}' | grep localstack-ec2 || echo "NONE"
-            echo
-            echo "--- docker.sock mounted into LocalStack? ---"
-            docker inspect localstack-main --format '{{range .Mounts}}{{.Source}} -> {{.Destination}}{{println}}{{end}}'
-            echo
-            echo "--- docker-backed AMIs ---"
-            awslocal ec2 describe-images --filters Name=tag:ec2_vm_manager,Values=docker --output table || true
+            awslocal ec2 describe-images --filters Name=tag:ec2_vm_manager,Values=docker \
+              --query 'Images[].{id:ImageId,name:Name}' --output table || true
             echo '```'
           } | tee -a "$GITHUB_STEP_SUMMARY"
-
-          if awslocal ec2 describe-images --image-ids "$AMI_ID" --query 'Images[0].ImageId' --output text 2>/dev/null | grep -qx "$AMI_ID"; then
-            echo "OK: LocalStack registered $AMI_ID"
-          else
-            echo "FAIL: LocalStack does not know AMI $AMI_ID" | tee -a "$GITHUB_STEP_SUMMARY"
-            awslocal ec2 describe-images --image-ids "$AMI_ID" || true
-            exit 1
-          fi
+          awslocal ec2 describe-images --image-ids "$AMI_ID" --query 'Images[0].ImageId' --output text | grep -qx "$AMI_ID"
       - run: make bootstrap
       - run: tflocal -chdir="$TF_DIR" init -backend-config=backend.hcl
       - run: make up
