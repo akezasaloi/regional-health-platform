@@ -4,9 +4,9 @@ resource "aws_security_group" "app" {
 
   # FIDELITY: LocalStack only honours the default SG; rules apply only at instance creation.
   ingress {
-    description = "HTTP from VPC"
-    from_port   = 80
-    to_port     = 80
+    description = "HTTPS from VPC"
+    from_port   = 443
+    to_port     = 443
     protocol    = "tcp"
     cidr_blocks = [var.vpc_cidr]
   }
@@ -20,10 +20,11 @@ resource "aws_security_group" "app" {
   }
 
   egress {
+    description = "Outbound to VPC only"
     from_port   = 0
     to_port     = 0
     protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
+    cidr_blocks = [var.vpc_cidr]
   }
 }
 
@@ -41,6 +42,11 @@ resource "aws_instance" "app" {
 
   root_block_device {
     volume_size = 8
+    encrypted   = true
+  }
+
+  metadata_options {
+    http_tokens = "required"
   }
 }
 
@@ -57,11 +63,12 @@ data "aws_subnets" "default" {
 }
 
 resource "aws_lb" "app" {
-  name               = "capacity-api"
-  internal           = false
-  load_balancer_type = "application"
-  subnets            = data.aws_subnets.default.ids
-  security_groups    = [aws_security_group.app.id]
+  name                       = "capacity-api"
+  internal                   = true
+  load_balancer_type         = "application"
+  subnets                    = data.aws_subnets.default.ids
+  security_groups            = [aws_security_group.app.id]
+  drop_invalid_header_fields = true
 }
 
 resource "aws_lb_target_group" "app" {
@@ -78,7 +85,10 @@ resource "aws_lb_target_group" "app" {
 
 resource "aws_lb_listener" "app" {
   load_balancer_arn = aws_lb.app.arn
-  port              = 80
+  port              = 443
+  protocol          = "HTTPS"
+  ssl_policy        = "ELBSecurityPolicy-TLS13-1-2-2021-06"
+  certificate_arn   = var.certificate_arn
 
   default_action {
     type             = "forward"

@@ -36,3 +36,8 @@ variable "vpc_cidr" {
   description = "VPC CIDR for security group ingress (never 0.0.0.0/0)."
   default     = "10.0.0.0/16"
 }
+
+variable "certificate_arn" {
+  type        = string
+  description = "ACM certificate ARN for the ALB HTTPS listener."
+}
