@@ -6,7 +6,7 @@ This directory holds the shared modules and env conventions. Do not copy-paste
 | Path | Owner | What |
 |---|---|---|
 | `modules/data/` | Saloi | Secrets Manager envelope around Aiven MySQL (no RDS; LocalStack Hobby returns 501) |
-| `modules/service/` | Berissa | EC2 + nginx + SG + ALB IaC |
+| `modules/service/` | Berissa | EC2 + SG (ALB removed; ELBv2 not on LocalStack Hobby) |
 | `envs/_template/` | Yordanos | Copy to `envs/<you>/` |
 | `backend.example.hcl` | Yordanos | S3 + DynamoDB lock |
 

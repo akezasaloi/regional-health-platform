@@ -10,6 +10,8 @@ Starters you will hit (verify each yourself, do not just copy):
 - only the `default` security group is honoured; custom SGs govern nothing
 - SG ingress rules apply only at instance creation
 - IMDS has no `iam/security-credentials/` endpoint
+- **ELBv2 (ALB) is not on the LocalStack Hobby license** — apply 501s with
+  `InternalFailure`; app traffic uses EC2 `public_ip` instead
 - `storage_encrypted` on RDS is returned as configured but not applied
 - the Docker socket is mounted inside the EC2 "instance" (sibling container)
 - ELBv2 health checking is undocumented; the listener port round-trips oddly

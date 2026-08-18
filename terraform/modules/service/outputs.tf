@@ -4,11 +4,16 @@ output "instance_id" {
 }
 
 output "sg_id" {
-  description = "Security group attached to the app instance and ALB."
+  description = "Security group attached to the app instance."
   value       = aws_security_group.app.id
 }
 
-output "lb_dns_name" {
-  description = "DNS name of the application load balancer."
-  value       = aws_lb.app.dns_name
+output "app_host" {
+  description = "EC2 public IP for reaching the app (ELBv2 dropped — not on LocalStack free tier)."
+  value       = aws_instance.app.public_ip
+}
+
+output "app_port" {
+  description = "Port the capacity-api container listens on."
+  value       = var.app_port
 }
