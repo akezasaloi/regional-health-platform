@@ -17,6 +17,15 @@ EVIDENCE_IAC="${ROOT}/evidence/01-iac"
 EVIDENCE_SEC="${ROOT}/evidence/03-secrets"
 FAILED=0
 
+# Same mapping `make up` does. Direct `bash scripts/verify.sh` in CI does not
+# go through the Makefile, so TF_VAR_db_* would otherwise be unset and plan
+# dies with "No value for required variable".
+export TF_VAR_db_host="${TF_VAR_db_host:-${AIVEN_HOST:-}}"
+export TF_VAR_db_port="${TF_VAR_db_port:-${AIVEN_PORT:-}}"
+export TF_VAR_db_username="${TF_VAR_db_username:-${AIVEN_USER:-avnadmin}}"
+export TF_VAR_db_password="${TF_VAR_db_password:-${AIVEN_PASSWORD:-}}"
+export TF_VAR_db_name="${TF_VAR_db_name:-${AIVEN_DB:-capacity_lab}}"
+
 fail() { echo "FAIL: $*" >&2; FAILED=1; }
 need() {
   command -v "$1" >/dev/null 2>&1 || { echo "FAIL: $1 not on PATH" >&2; exit 1; }
