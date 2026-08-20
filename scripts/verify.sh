@@ -17,6 +17,15 @@ EVIDENCE_IAC="${ROOT}/evidence/01-iac"
 EVIDENCE_SEC="${ROOT}/evidence/03-secrets"
 FAILED=0
 
+# Same mapping `make up` does. Direct `bash scripts/verify.sh` in CI does not
+# go through the Makefile, so TF_VAR_db_* would otherwise be unset and plan
+# dies with "No value for required variable".
+export TF_VAR_db_host="${TF_VAR_db_host:-${AIVEN_HOST:-}}"
+export TF_VAR_db_port="${TF_VAR_db_port:-${AIVEN_PORT:-}}"
+export TF_VAR_db_username="${TF_VAR_db_username:-${AIVEN_USER:-avnadmin}}"
+export TF_VAR_db_password="${TF_VAR_db_password:-${AIVEN_PASSWORD:-}}"
+export TF_VAR_db_name="${TF_VAR_db_name:-${AIVEN_DB:-capacity_lab}}"
+
 fail() { echo "FAIL: $*" >&2; FAILED=1; }
 need() {
   command -v "$1" >/dev/null 2>&1 || { echo "FAIL: $1 not on PATH" >&2; exit 1; }
@@ -24,8 +33,18 @@ need() {
 
 need curl
 need jq
-need terraform
 need gitleaks
+
+# tflocal injects LocalStack endpoints. Plain `terraform plan` after a
+# tflocal apply talks to real AWS and fails check 1 in CI.
+if command -v tflocal >/dev/null 2>&1; then
+  TF=(tflocal)
+elif command -v terraform >/dev/null 2>&1; then
+  TF=(terraform)
+else
+  echo "FAIL: terraform/tflocal not on PATH" >&2
+  exit 1
+fi
 
 if [[ ! -d "${TF_DIR}" ]]; then
   echo "FAIL: no Terraform root at ${TF_DIR}" >&2
@@ -35,23 +54,25 @@ fi
 mkdir -p "${EVIDENCE_IAC}" "${EVIDENCE_SEC}"
 
 echo "== 1/5 terraform plan is empty after apply =="
-pushd "${TF_DIR}" >/dev/null
-# detailed-exitcode: 0 = empty, 1 = error, 2 = changes pending
-set +e
-terraform plan -detailed-exitcode -no-color > "${EVIDENCE_IAC}/plan-after-apply.txt" 2>&1
-PLAN_RC=$?
-set -e
-popd >/dev/null
+echo "    terraform bin: $("${TF[@]}" version -json 2>/dev/null | jq -r .terraform_version 2>/dev/null || command -v "${TF[0]}")"
+PLAN_RC=0
+"${TF[@]}" -chdir="${TF_DIR}" plan -no-color -detailed-exitcode \
+  > "${EVIDENCE_IAC}/plan-after-apply.txt" 2>&1 || PLAN_RC=$?
+echo "    plan rc=${PLAN_RC} (0 empty, 2 changes, other error)"
 case "${PLAN_RC}" in
   0) echo "OK: plan empty" ;;
-  2) fail "plan is not empty — see ${EVIDENCE_IAC}/plan-after-apply.txt" ;;
-  *) fail "terraform plan errored (rc=${PLAN_RC}) — see ${EVIDENCE_IAC}/plan-after-apply.txt" ;;
+  2)
+    fail "plan is not empty — see ${EVIDENCE_IAC}/plan-after-apply.txt"
+    sed -n '1,80p' "${EVIDENCE_IAC}/plan-after-apply.txt" >&2 || true
+    ;;
+  *)
+    fail "terraform plan errored (rc=${PLAN_RC}) — see ${EVIDENCE_IAC}/plan-after-apply.txt"
+    sed -n '1,80p' "${EVIDENCE_IAC}/plan-after-apply.txt" >&2 || true
+    ;;
 esac
 
 echo "== 2/5 GET /healthz → 200 =="
-pushd "${TF_DIR}" >/dev/null
-APP_URL="${APP_URL:-$(terraform output -raw app_url 2>/dev/null || true)}"
-popd >/dev/null
+APP_URL="${APP_URL:-$("${TF[@]}" -chdir="${TF_DIR}" output -raw app_url 2>/dev/null || true)}"
 APP_URL="${APP_URL:-http://127.0.0.1:3000}"
 echo "    target ${APP_URL}"
 
@@ -79,8 +100,11 @@ else
 fi
 
 echo "== 5/5 gitleaks on repo → zero findings =="
+# Deploy checkout is shallow (fetch-depth 1); git-history mode errors. The
+# gitleaks job already scanned full history. Here scan the tree, skipping
+# generated evidence (see .gitleaks.toml).
 set +e
-gitleaks detect --source "${ROOT}" --no-banner \
+gitleaks detect --no-git --source "${ROOT}" --no-banner \
   --report-path "${EVIDENCE_SEC}/gitleaks.json" \
   --report-format json
 GL_RC=$?
@@ -92,7 +116,24 @@ else
 fi
 
 if [[ "${FAILED}" -ne 0 ]]; then
-  echo "verify: FAILED" >&2
+  PLAN_HEAD="$(tr '\n' ' ' < "${EVIDENCE_IAC}/plan-after-apply.txt" 2>/dev/null | head -c 400 || true)"
+  echo "verify: FAILED plan_rc=${PLAN_RC} healthz=${HZ_CODE:-?} readyz=${RZ_CODE:-?} secret=${SRC:-<empty>} gitleaks=${GL_RC:-?}" >&2
+  echo "::error::verify failed plan_rc=${PLAN_RC} healthz=${HZ_CODE:-?} readyz=${RZ_CODE:-?} gitleaks=${GL_RC:-?} plan=${PLAN_HEAD} secret=${SRC:-<empty>}"
+  if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
+    {
+      echo '## make verify'
+      echo "- plan_rc: ${PLAN_RC}"
+      echo "- healthz: ${HZ_CODE:-?}"
+      echo "- readyz: ${RZ_CODE:-?}"
+      echo "- secret-source: \`${SRC:-<empty>}\`"
+      echo "- gitleaks: ${GL_RC:-?}"
+      echo
+      echo '### plan-after-apply (head)'
+      echo '```'
+      sed -n '1,80p' "${EVIDENCE_IAC}/plan-after-apply.txt" 2>/dev/null || true
+      echo '```'
+    } >> "${GITHUB_STEP_SUMMARY}"
+  fi
   exit 1
 fi
 echo "verify: all 5 checks passed"

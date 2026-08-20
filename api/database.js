@@ -44,6 +44,17 @@ const MONGO_DB_NAME = process.env.MONGO_DB || 'capacity_lab';
 // ---------------------------------------------------------------------------
 let pool;
 
+function applySecret(secret) {
+  MYSQL_CONFIG.host = secret.host;
+  MYSQL_CONFIG.port = Number(secret.port);
+  MYSQL_CONFIG.user = secret.username;
+  MYSQL_CONFIG.password = secret.password;
+  MYSQL_CONFIG.database = secret.dbname;
+  // Aiven requires TLS. VERIFY_CA needs AIVEN_CA_PATH; REQUIRED is enough for C3.
+  MYSQL_CONFIG.ssl = { rejectUnauthorized: false };
+  pool = undefined;
+}
+
 function getPool() {
   if (!pool) {
     pool = mysql.createPool(MYSQL_CONFIG);
@@ -88,6 +99,7 @@ module.exports = {
   MYSQL_CONFIG,
   MONGO_URI,
   MONGO_DB_NAME,
+  applySecret,
   getPool,
   getMongo,
   closeAll,

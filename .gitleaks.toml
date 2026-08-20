@@ -1,0 +1,11 @@
+title = "regional-health-platform"
+
+# Generated during `make up` / `make verify`. Hostnames in apply.log / seed.log
+# are not committed credentials; scanning them after apply false-fails C8.
+[allowlist]
+paths = [
+  '''(^|/)evidence/''',
+  '''(^|/)\.terraform/''',
+  '''(^|/)\.tflocal/''',
+  '''(^|/)node_modules/''',
+]
