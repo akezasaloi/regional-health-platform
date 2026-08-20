@@ -62,35 +62,79 @@ PORT="$(echo "${CREDS_JSON}" | jq -r .port)"
 DB_NAME="$(echo "${CREDS_JSON}" | jq -r .dbname)"
 unset CREDS_JSON
 
+# CI installs Ubuntu's `mysql-client`, which is MariaDB. That binary does not
+# implement MySQL's `--ssl-mode` (unknown variable → instant fail). We used to
+# throw that away (`>/dev/null 2>&1`) and report "Aiven never answered", which
+# was wrong: Terraform had already stored the envelope, so the host/port were
+# set. Keep TLS on; pick flags the installed client actually understands.
+echo ">> mysql client: $(mysql --version)"
 ssl_args=()
-if [[ -n "${AIVEN_CA_PATH:-}" ]]; then
-  if [[ ! -f "${AIVEN_CA_PATH}" ]]; then
-    echo "FAIL: AIVEN_CA_PATH=${AIVEN_CA_PATH} is not a file" >&2
-    exit 1
+if mysql --help 2>/dev/null | grep -q -- '--ssl-mode'; then
+  if [[ -n "${AIVEN_CA_PATH:-}" ]]; then
+    if [[ ! -f "${AIVEN_CA_PATH}" ]]; then
+      echo "FAIL: AIVEN_CA_PATH=${AIVEN_CA_PATH} is not a file" >&2
+      exit 1
+    fi
+    ssl_args=(--ssl-mode=VERIFY_CA --ssl-ca="${AIVEN_CA_PATH}")
+    echo ">> TLS: MySQL --ssl-mode=VERIFY_CA with ${AIVEN_CA_PATH}"
+  else
+    ssl_args=(--ssl-mode=REQUIRED)
+    echo ">> TLS: MySQL --ssl-mode=REQUIRED (set AIVEN_CA_PATH for VERIFY_CA)"
   fi
-  ssl_args=(--ssl-mode=VERIFY_CA --ssl-ca="${AIVEN_CA_PATH}")
-  echo ">> TLS: VERIFY_CA with ${AIVEN_CA_PATH}"
 else
-  ssl_args=(--ssl-mode=REQUIRED)
-  echo ">> TLS: REQUIRED (set AIVEN_CA_PATH to the downloaded Aiven CA for VERIFY_CA)"
+  if [[ -n "${AIVEN_CA_PATH:-}" ]]; then
+    if [[ ! -f "${AIVEN_CA_PATH}" ]]; then
+      echo "FAIL: AIVEN_CA_PATH=${AIVEN_CA_PATH} is not a file" >&2
+      exit 1
+    fi
+    ssl_args=(--ssl --ssl-verify-server-cert --ssl-ca="${AIVEN_CA_PATH}")
+    echo ">> TLS: MariaDB --ssl --ssl-verify-server-cert with ${AIVEN_CA_PATH}"
+  else
+    ssl_args=(--ssl)
+    echo ">> TLS: MariaDB --ssl (required encryption; set AIVEN_CA_PATH for VERIFY_CA)"
+  fi
 fi
+
+redact() {
+  local s
+  s="$(cat)"
+  s="${s//"${DB_PASS}"/***}"
+  s="${s//"${ENDPOINT}"/***}"
+  printf '%s' "${s}"
+}
 
 mysql_aiven() {
   mysql -h "${ENDPOINT}" -P "${PORT}" -u "${DB_USER}" -p"${DB_PASS}" \
     --connect-timeout=20 "${ssl_args[@]}" "$@"
 }
 
-echo ">> waiting for Aiven ${ENDPOINT}:${PORT} (free plan sleeps when idle) ..."
+echo ">> probing TCP ${ENDPOINT}:${PORT}"
+if timeout 15 bash -c "echo >/dev/tcp/${ENDPOINT}/${PORT}" 2>/tmp/aiven.tcp.err; then
+  echo ">> TCP is open (service is reachable; a mysql failure is TLS/auth, not sleep)"
+else
+  echo ">> TCP not open yet (free plan may be powered off). last: $(redact </tmp/aiven.tcp.err)"
+fi
+
+echo ">> waiting for Aiven ${ENDPOINT}:${PORT} as ${DB_USER} (TLS, free plan sleeps when idle) ..."
 awake=0
-for _ in $(seq 1 36); do
-  if mysql_aiven -e "SELECT 1" >/dev/null 2>&1; then
+last_err=""
+# Aiven power-off → running can take several minutes; 12 min is still cheaper
+# than a false "never answered" caused by a client flag the binary rejects.
+for i in $(seq 1 72); do
+  if last_err="$(mysql_aiven -e "SELECT 1" 2>&1)"; then
     awake=1
     break
   fi
-  sleep 5
+  if [[ $((i % 6)) -eq 1 ]]; then
+    echo ">> try ${i}/72: $(echo "${last_err}" | redact | tr '\n' ' ')"
+  fi
+  sleep 10
 done
 if [[ "${awake}" -ne 1 ]]; then
-  echo "FAIL: Aiven never answered. Open the service in the Aiven console to wake it, then retry." >&2
+  echo "FAIL: Aiven never accepted SELECT 1 on ${ENDPOINT}:${PORT} as ${DB_USER}." >&2
+  echo "      last mysql: $(echo "${last_err}" | redact)" >&2
+  echo "      If TCP stayed closed: open the service in the Aiven console (powered off ≠ idle)." >&2
+  echo "      If TCP was open: check AIVEN_PASSWORD / AIVEN_PORT in Actions secrets." >&2
   exit 1
 fi
 echo ">> Aiven is up"
