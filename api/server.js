@@ -77,24 +77,23 @@ app.get('/health', (_req, res) => res.json({ status: 'ok' }));
 app.get('/healthz', (_req, res) => res.json({ status: 'ok' }));
 
 app.get('/readyz', async (_req, res) => {
-  // C4: readiness is not liveness. 503 on any of the three conditions that make
-  // this instance unable to serve, so nginx pulls it from the upstream pool.
+  // C4: 503 on anything that makes this instance unable to serve, so nginx
+  // pulls it from the upstream pool.
   const checks = { secret: 'ok', pool: 'ok', db: 'ok' };
 
-  // 1. the secret failed to resolve — env fallback is not a ready state here
+  // 1. secret never resolved — the env fallback is not a ready state
   if (!secretResolved()) {
     checks.secret = 'unresolved';
   }
 
-  // 2. pool saturated: every connection busy and callers already queued.
-  //    queueLimit is 0 (unbounded), so saturation shows as latency, not errors —
-  //    exactly the OPS-2202 failure mode. Readiness is where it becomes visible.
+  // 2. pool saturated. queueLimit is 0, so this shows as latency not errors —
+  //    the OPS-2202 failure mode, made visible to the load balancer.
   const stats = poolStats();
   if (stats.free === 0 && stats.queued > 0) {
     checks.pool = `saturated (${stats.all}/${stats.limit} busy, ${stats.queued} queued)`;
   }
 
-  // 3. the DB itself is unreachable / rejecting
+  // 3. the database itself
   try {
     await getPool().query('SELECT 1');
   } catch (err) {
@@ -106,7 +105,6 @@ app.get('/readyz', async (_req, res) => {
 });
 
 app.get('/debug/secret-source', (_req, res) => {
-  // ARN + version only — never the envelope.
   const src = getSecretSource();
   res.status(src.arn && src.arn !== 'env' ? 200 : 503).json(src);
 });

@@ -1,10 +1,6 @@
-# Golden CI pipeline (C5): gitleaks -> trivy-config -> zizmor -> build+scan image -> apply -> verify.
-#
-# Pinning policy: every `uses:` is a 40-char commit SHA, never a tag. Dependabot
-# (.github/dependabot.yml) bumps them weekly through reviewed PRs.
-#
-# Secrets policy: the four scanner jobs run with no `secrets:` block and no
-# credentials in `env:`. Only deploy-and-verify is trusted with a token.
+# Golden CI (C5): gitleaks -> trivy-config -> zizmor -> build+scan -> apply -> verify.
+# Every `uses:` is a 40-char SHA (Dependabot bumps them). Scanner jobs get no
+# secrets; only deploy-and-verify does.
 name: ci
 
 on:
@@ -53,10 +49,8 @@ jobs:
           persist-credentials: false
       - uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2.3.9
         env:
-          # Required on pull_request events: the action reads the PR's commit
-          # range through the API. This is the short-lived per-job token, not a
-          # stored repo secret, and it is capped by permissions: contents: read
-          # above. No deployment credential is exposed to this job.
+          # Required on pull_request: the action reads the PR commit range.
+          # Short-lived per-job token, capped by permissions above.
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # No PR comments, so the job needs no pull-requests: write.
           GITLEAKS_ENABLE_COMMENTS: 'false'
@@ -124,10 +118,8 @@ jobs:
           image-ref: ${{ steps.tag.outputs.ami_tag }}
           severity: HIGH,CRITICAL
           exit-code: '1'
-          # Report only what we can act on. The Debian base carries ~48
-          # HIGH/CRITICAL CVEs with no upstream patch (perl, zlib, util-linux);
-          # without this the gate is permanently red no matter what we fix, which
-          # trains people to ignore it. Everything fixable still fails the build.
+          # The Debian base carries ~48 unpatchable HIGH/CRITICALs; without this
+          # the gate is permanently red. Everything fixable still fails.
           ignore-unfixed: true
 
   deploy-and-verify:
@@ -166,37 +158,20 @@ jobs:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
         with:
           persist-credentials: false
-      # ----------------------------------------------------------------------
-      # E2 — production path, deliberately not enabled here.
-      #
-      # Against real AWS this job would assume a role via GitHub's OIDC
-      # provider instead of holding any long-lived key. LocalStack accepts
-      # test/test, so there is nothing to federate against in this lab — the
-      # block stays commented as a design deliverable. Trust policy:
-      # docs/oidc-trust-policy.json. The `sub` wildcard failure mode is
-      # written up in README.md.
-      #
-      #   permissions:
-      #     id-token: write      # required to mint the OIDC token
-      #     contents: read
-      #
-      #   - uses: aws-actions/configure-aws-credentials@<40-char-sha>
-      #     with:
-      #       role-to-assume: arn:aws:iam::123456789012:role/regional-health-ci
-      #       aws-region: us-east-1
-      #       # no aws-access-key-id / aws-secret-access-key: that is the point
-      # ----------------------------------------------------------------------
-      # Build before LocalStack starts: its EC2 docker backend registers AMIs by
-      # scanning images tagged localstack-ec2/<name>:<ami-id>, so the image has
-      # to exist first. The scanned image lives on the build job's runner, not
-      # this one, so rebuild it here under the identical tag.
+      # E2 design deliverable — the real-AWS path, not enabled (LocalStack takes
+      # test/test). Trust policy: docs/oidc-trust-policy.json; `sub` wildcard
+      # failure mode: README.md.
+      #   permissions: { id-token: write, contents: read }
+      #   - uses: aws-actions/configure-aws-credentials@<sha>
+      #     with: { role-to-assume: arn:aws:iam::…:role/regional-health-ci, aws-region: us-east-1 }
+      # Rebuilt here (the build job's runner is gone) and before LocalStack
+      # starts, so the AMI tag exists when it scans for images.
       - env:
           AMI_TAG: ${{ needs.build-and-scan-image.outputs.ami_tag }}
           APP_DIR: ${{ inputs.app_dir }}
         run: docker build -t "$AMI_TAG" "./$APP_DIR"
-      # in-runner mode: LocalStack runs inside this runner at localhost:4566.
-      # Nothing is hosted off-runner. Install awslocal only — we start
-      # LocalStack ourselves so the docker socket is mounted.
+      # in-runner mode. awslocal only — we start LocalStack ourselves so the
+      # docker socket gets mounted.
       - uses: LocalStack/setup-localstack@7c8a0cb3405bc58be4c8f763f812aa000bc46303 # v0.3.2
         with:
           install-awslocal: 'true'
@@ -206,19 +181,15 @@ jobs:
           : "${LOCALSTACK_AUTH_TOKEN:?FAIL: LOCALSTACK_AUTH_TOKEN is empty in Actions secrets}"
           command -v localstack >/dev/null || pipx install localstack
           localstack --version
-          # GitHub's docker.sock is root:docker 660; LocalStack must be able to
-          # list host images to register them as AMIs.
+          # 660 root:docker by default; LocalStack must read host images.
           sudo chmod 666 /var/run/docker.sock || true
           export EC2_VM_MANAGER=docker
           export DOCKER_FLAGS="-v /var/run/docker.sock:/var/run/docker.sock --privileged"
           localstack start -d
           localstack wait -t 120
           curl -sS http://localhost:4566/_localstack/info || true
-      # Hobby EC2 stays in mock mode even with the socket mounted — the same
-      # licence class as RDS and ELBv2, but silent: ec2 reports "available"
-      # while serving a canned AMI catalogue. Verified independently in PR #9
-      # with LocalStack's own documented example AMI. Fall back to mock so
-      # aws_instance can apply; the scanned image then runs on the runner.
+      # Docker-backed AMIs never appear in DescribeImages (see FIDELITY.md), so
+      # fall back to mock EC2 and run the scanned image on the runner instead.
       - name: Register the AMI, or fall back to mock EC2
         env:
           AMI_TAG: ${{ needs.build-and-scan-image.outputs.ami_tag }}
@@ -259,14 +230,12 @@ jobs:
           echo "EC2_DOCKER=0" >> "$GITHUB_ENV"
           echo "APP_URL=http://127.0.0.1:3000" >> "$GITHUB_ENV"
           echo "using mock AMI $MOCK_AMI for terraform; app runs on the runner"
-      # Pin terraform: 1.6+ deprecates dynamodb_table, and newer majors have
-      # dropped backend arguments the bootstrap script still relies on.
+      # Pinned: newer majors drop backend args bootstrap/tfstate.sh relies on.
       - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
         with:
           terraform_version: 1.9.8
           terraform_wrapper: false
-      # tflocal drives Terraform at LocalStack; verify.sh check 5 shells out to
-      # gitleaks; seed.sh restores the dump into Aiven with the mysql client.
+      # tflocal for Terraform, gitleaks for verify.sh check 5, mysql for seed.sh.
       - run: pipx install terraform-local
       - env:
           GITLEAKS_VERSION: 8.24.3
@@ -281,10 +250,7 @@ jobs:
           }
           command -v jq >/dev/null || sudo apt-get install -y --no-install-recommends jq
           mysql --version
-      # envs/_template declares an empty `backend "s3" {}` and expects a
-      # backend.hcl. use_path_style matters: bootstrap/tfstate.sh creates the
-      # bucket path-style via awslocal, and without it PutObject returns
-      # NoSuchBucket even though init can read the state.
+      # envs/_template has an empty `backend "s3" {}` and expects a backend.hcl.
       - run: |
           cat > "$TF_DIR/backend.hcl" <<'HCL'
           bucket         = "tfstate-regional-health"
@@ -293,10 +259,8 @@ jobs:
           dynamodb_table = "tfstate-lock"
           encrypt        = true
 
-          # tflocal rewrites the *provider* to talk to LocalStack but leaves the
-          # *backend* pointed at real AWS, so init died validating "test" against
-          # the real STS (InvalidClientTokenId). Point the backend at LocalStack
-          # and skip the credential round-trips that have no meaning here.
+          # tflocal rewrites the provider but not the backend, which would
+          # otherwise validate "test" against real STS. See FIDELITY.md.
           use_path_style              = true
           skip_credentials_validation = true
           skip_metadata_api_check     = true
@@ -310,14 +274,12 @@ jobs:
             iam      = "http://localhost:4566"
           }
           HCL
-      # bootstrap creates the state bucket + lock table, so init has somewhere
-      # to write. `make up` re-runs a bare `init`, which reuses this cached
-      # backend config (standard partial-configuration flow).
+      # bootstrap creates the bucket + lock table; `make up`'s bare init then
+      # reuses this cached backend config.
       - run: make bootstrap
       - run: tflocal -chdir="$TF_DIR" init -backend-config=backend.hcl
       - run: make up
-      # Mock EC2 never runs user_data, so the scanned image has to listen on the
-      # runner for /healthz, /readyz and /debug/secret-source.
+      # Mock EC2 never runs user_data, so serve the image from the runner.
       - name: Run the scanned image on the runner (mock EC2)
         if: env.EC2_DOCKER != '1'
         env:

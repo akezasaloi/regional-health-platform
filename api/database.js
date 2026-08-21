@@ -55,11 +55,7 @@ function applySecret(secret) {
   pool = undefined;
 }
 
-/**
- * Pool occupancy, for /readyz (C4). mysql2 keeps these on the inner pool and
- * has used both arrays and Denque across versions, so read defensively —
- * a readiness probe must never throw.
- */
+/** Pool occupancy for /readyz. Read defensively — a probe must never throw. */
 function poolStats() {
   const size = (c) => {
     if (!c) return 0;
