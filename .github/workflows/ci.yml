@@ -124,6 +124,10 @@ jobs:
 
   deploy-and-verify:
     needs: build-and-scan-image
+    # Dependabot PRs run without repository secrets by design, so this job
+    # cannot authenticate to LocalStack or Aiven. The four scanner gates still
+    # run on every bump; the full pipeline runs again once the bump is on main.
+    if: github.actor != 'dependabot[bot]'
     runs-on: ubuntu-22.04
     permissions:
       contents: read
