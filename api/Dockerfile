@@ -2,13 +2,13 @@
 #
 # Two stages so npm never reaches the runtime image.
 # Base pinned by digest, not tag — a tag can be re-pointed. Dependabot bumps it.
-FROM node:22-bookworm-slim@sha256:d649c27dae7ba0137b3cef5dd75baa422c08dc3d9e3fc0c23dfb172dc3cc6436 AS build
+FROM node:26-bookworm-slim@sha256:cd565714d4da3e84bfd341e31448f81d47c6362198f152345297c9c1154e6341 AS build
 
 WORKDIR /usr/src/app
 COPY package.json ./
 RUN npm install --omit=dev
 
-FROM node:22-bookworm-slim@sha256:d649c27dae7ba0137b3cef5dd75baa422c08dc3d9e3fc0c23dfb172dc3cc6436
+FROM node:26-bookworm-slim@sha256:cd565714d4da3e84bfd341e31448f81d47c6362198f152345297c9c1154e6341
 
 # apt-get upgrade picks up patched OS packages; removing npm drops the rest.
 RUN apt-get update \
