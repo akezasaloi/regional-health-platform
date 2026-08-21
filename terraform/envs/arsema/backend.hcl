@@ -7,11 +7,7 @@ region         = "us-east-1"
 dynamodb_table = "tfstate-lock"
 encrypt        = true
 
-# tflocal rewrites the *provider* to talk to LocalStack but leaves the *backend*
-# pointed at real AWS — init then dies validating "test" against the real STS
-# (InvalidClientTokenId). Point the backend at LocalStack and skip the
-# credential round-trips, which have no meaning here. use_path_style matters
-# because bootstrap/tfstate.sh creates the bucket path-style via awslocal.
+# LocalStack-only; all of this comes out on real AWS. See FIDELITY.md.
 use_path_style              = true
 skip_credentials_validation = true
 skip_metadata_api_check     = true

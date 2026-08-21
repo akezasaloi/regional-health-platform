@@ -1,18 +1,7 @@
 #!/usr/bin/env bash
-# =============================================================================
-# C5 — gitleaks as a pre-commit gate.
-#
-# The CI job scans full history and is the gate that blocks a merge. This hook
-# is the fast local half: it catches a credential *before* it becomes a commit,
-# because once a secret is in history, removing it means a rewrite and a
-# rotation — the commit is the point of no return, not the push.
-#
-# Enable once per clone (hooks are not shared by git):
-#   git config core.hooksPath .githooks
-#
-# Deliberately staged-only and --no-git: it scans what you are about to commit,
-# so it stays fast enough that nobody is tempted to reach for --no-verify.
-# =============================================================================
+# C5 — gitleaks on staged content, before a secret can become a commit.
+# CI scans full history and is the blocking gate; this is the fast local half.
+# Enable per clone: git config core.hooksPath .githooks
 set -euo pipefail
 
 if ! command -v gitleaks >/dev/null 2>&1; then
@@ -27,8 +16,7 @@ STAGED="$(git diff --cached --name-only --diff-filter=ACM)"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
-# Mirror the staged content into a scratch tree so we scan exactly what is
-# about to be committed, not the working copy (which may differ).
+# Scan the staged content, not the working copy — they can differ.
 while IFS= read -r f; do
   mkdir -p "$TMP/$(dirname "$f")"
   git show ":$f" > "$TMP/$f" 2>/dev/null || true
