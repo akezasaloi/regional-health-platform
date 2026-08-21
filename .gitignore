@@ -7,6 +7,15 @@ yarn-error.log*
 .env
 .env.local
 *.local
+terraform.tfvars
+*.auto.tfvars
+!*.tfvars.example
+!*.auto.tfvars.example
+
+# Aiven TLS material — download from the service page, never commit
+secrets/*.pem
+secrets/*.crt
+*.pem
 
 # IDE
 .idea/
@@ -21,5 +30,30 @@ Thumbs.db
 *.log
 load-tests/results/
 
+# Terraform / LocalStack — state is a credential store, never commit it
+.terraform/
+**/.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.tflocal/
+.terraformrc
+terraform.rc
+
+# A2 evidence (override the *.log ignore so apply.log / seed.log / boot.log track)
 !evidence/
 !evidence/**
+!evidence/**/*.log
+!evidence/**/*.txt
+!evidence/**/*.json
+# Loom / screencaps stay out of git (submit as links)
+evidence/**/*.mp4
+
+# Keep generated dumps out of git
+/tmp/
+*.dump.sql

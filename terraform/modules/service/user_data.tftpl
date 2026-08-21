@@ -1,0 +1,13 @@
+#!/bin/bash
+set -euxo pipefail
+export AWS_ENDPOINT_URL="http://localhost.localstack.cloud:4566"
+export AWS_DEFAULT_REGION="us-east-1"
+export DB_SECRET_ARN="${secret_arn}"
+export DB_HOST="${db_endpoint}"
+export DB_PORT="${db_port}"
+docker run -d --restart=unless-stopped --memory=512m \
+  -e AWS_ENDPOINT_URL -e AWS_DEFAULT_REGION \
+  -e DB_SECRET_ARN -e DB_HOST -e DB_PORT \
+  -p ${app_port}:${app_port} \
+  --name capacity-api \
+  ${app_ami_id}
