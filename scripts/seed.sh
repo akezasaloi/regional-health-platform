@@ -55,12 +55,74 @@ popd >/dev/null
 echo ">> fetching DB credentials from Secrets Manager ${SECRET_ARN}"
 CREDS_JSON="$(awslocal secretsmanager get-secret-value \
   --secret-id "${SECRET_ARN}" --query SecretString --output text)"
-DB_USER="$(echo "${CREDS_JSON}" | jq -r .username)"
-DB_PASS="$(echo "${CREDS_JSON}" | jq -r .password)"
-ENDPOINT="$(echo "${CREDS_JSON}" | jq -r .host)"
-PORT="$(echo "${CREDS_JSON}" | jq -r .port)"
-DB_NAME="$(echo "${CREDS_JSON}" | jq -r .dbname)"
+DB_USER="$(echo "${CREDS_JSON}" | jq -r '.username // empty')"
+DB_PASS="$(echo "${CREDS_JSON}" | jq -r '.password // empty')"
+ENDPOINT="$(echo "${CREDS_JSON}" | jq -r '.host // empty')"
+PORT="$(echo "${CREDS_JSON}" | jq -r '.port // empty')"
+DB_NAME="$(echo "${CREDS_JSON}" | jq -r '.dbname // empty')"
 unset CREDS_JSON
+
+# AIVEN_HOST is often pasted as the Service URI or "host:port". DNS then looks
+# up that whole string and mysql reports ERROR 2005 / "No address associated
+# with hostname" for 12 minutes. Parse it; never print the secret.
+parsed="$(
+  RAW_HOST="${ENDPOINT}" RAW_PORT="${PORT}" python3 - <<'PY'
+import os, socket, sys
+from urllib.parse import urlparse
+
+raw_host = os.environ.get("RAW_HOST", "")
+raw_port = os.environ.get("RAW_PORT", "")
+host = raw_host.strip().strip('"').strip("'")
+port = str(raw_port).strip().strip('"').strip("'")
+
+if "://" in host:
+    u = urlparse(host)
+    host = u.hostname or ""
+    if u.port:
+        port = str(u.port)
+
+if host.count(":") == 1 and not host.startswith("["):
+    h, p = host.rsplit(":", 1)
+    if p.isdigit():
+        host, port = h, p
+
+host = host.strip().split("/")[0]
+port = port.strip()
+
+def shape():
+    return (
+        f"host_len={len(host)} dots={host.count('.')} space={int(' ' in host)} "
+        f"slash={int('/' in raw_host)} scheme={int('://' in raw_host)} "
+        f"looks_aiven={int(host.endswith(('.aivencloud.com', '.aiven.io')))} "
+        f"port={port!r} port_digits={port.isdigit()}"
+    )
+
+if not host or host in {"null", "None", "undefined"}:
+    print(f"FAIL: Secrets Manager host is empty after parse ({shape()})", file=sys.stderr)
+    sys.exit(2)
+if not port.isdigit():
+    print(f"FAIL: Secrets Manager port is not a number ({shape()})", file=sys.stderr)
+    sys.exit(2)
+
+try:
+    socket.getaddrinfo(host, int(port), type=socket.SOCK_STREAM)
+except socket.gaierror as err:
+    print(f"FAIL: AIVEN_HOST does not resolve in DNS ({err}; {shape()})", file=sys.stderr)
+    print(
+        "Set GitHub secret AIVEN_HOST to the Aiven *Host* field only "
+        "(e.g. mysql-….a.aivencloud.com), not the Service URI, not host:port, "
+        "no quotes, no https://. AIVEN_PORT is digits only (not 3306 on the free plan).",
+        file=sys.stderr,
+    )
+    sys.exit(1)
+
+print(host)
+print(port)
+PY
+)" || exit 1
+ENDPOINT="$(echo "${parsed}" | sed -n '1p')"
+PORT="$(echo "${parsed}" | sed -n '2p')"
+echo ">> Aiven DNS resolved (port digits=${#PORT})"
 
 # CI installs Ubuntu's `mysql-client`, which is MariaDB. That binary does not
 # implement MySQL's `--ssl-mode` (unknown variable → instant fail). We used to

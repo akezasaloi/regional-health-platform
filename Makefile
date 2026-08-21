@@ -61,6 +61,9 @@ check-aiven:
 	  echo "FAIL: AIVEN_HOST is not set. Copy the hostname from your Aiven MySQL service page." >&2; \
 	  exit 1; \
 	}
+	@case "$${AIVEN_HOST}" in \
+	  *://*) echo "FAIL: AIVEN_HOST must be the Host field only, not the Service URI." >&2; exit 1 ;; \
+	esac
 	@test -n "$${AIVEN_PORT:-}" || { \
 	  echo "FAIL: AIVEN_PORT is not set. Copy the port from your Aiven MySQL service page." >&2; \
 	  exit 1; \
