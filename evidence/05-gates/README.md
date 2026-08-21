@@ -49,6 +49,12 @@ is precisely the tj-actions/changed-files failure mode, where tags were
 repointed at attacker-controlled code. Pinning defeats tag mutation, not a
 compromised maintainer or a zero-day in the tool itself.
 
+**A green check on a Dependabot PR** means less than a green check on a human
+one. Dependabot runs without repository secrets by design, so `deploy-and-verify`
+is skipped and only the four scanners report. A bump that passes every scanner
+and still breaks the deploy would go green here; the full pipeline only re-runs
+once the bump is on `main`. Review bumps on that basis.
+
 ## Guard the guards
 
 Pinning is necessary and not sufficient, so the pipeline layers containment and
