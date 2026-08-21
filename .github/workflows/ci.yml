@@ -1,0 +1,313 @@
+# Golden CI pipeline (C5): gitleaks -> trivy-config -> zizmor -> build+scan image -> apply -> verify.
+#
+# Pinning policy: every `uses:` is a 40-char commit SHA, never a tag. Dependabot
+# (.github/dependabot.yml) bumps them weekly through reviewed PRs.
+#
+# Secrets policy: the four scanner jobs run with no `secrets:` block and no
+# credentials in `env:`. Only deploy-and-verify is trusted with a token.
+name: ci
+
+on:
+  workflow_call:
+    secrets:
+      LOCALSTACK_AUTH_TOKEN:
+        required: false
+      AIVEN_HOST:
+        required: false
+      AIVEN_PORT:
+        required: false
+      AIVEN_USER:
+        required: false
+      AIVEN_PASSWORD:
+        required: false
+      AIVEN_DB:
+        required: false
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  gitleaks:
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+    steps:
+      - uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+        with:
+          fetch-depth: 0 # full history: a secret is only found in the commit that added it
+          persist-credentials: false
+      - uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2.3.9
+        env:
+          # Required on pull_request events: the action reads the PR's commit
+          # range through the API. This is the short-lived per-job token, not a
+          # stored repo secret, and it is capped by permissions: contents: read
+          # above. No deployment credential is exposed to this job.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # No PR comments, so the job needs no pull-requests: write.
+          GITLEAKS_ENABLE_COMMENTS: 'false'
+
+  trivy-config:
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+    steps:
+      - uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+        with:
+          persist-credentials: false
+      - uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: config
+          severity: HIGH,CRITICAL
+          exit-code: '1'
+
+  zizmor:
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+    steps:
+      - uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+        with:
+          persist-credentials: false
+      - run: pipx install zizmor==1.29.0 # pinned, same reason every uses: is a SHA
+      - run: zizmor .github/workflows/
+
+  build-and-scan-image:
+    needs: [gitleaks, trivy-config, zizmor]
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+    outputs:
+      # ami_tag is the docker tag LocalStack discovers the image by.
+      # ami_id is what aws_instance.ami takes — LocalStack rejects the full tag.
+      ami_tag: ${{ steps.tag.outputs.ami_tag }}
+      ami_id: ${{ steps.tag.outputs.ami_id }}
+    steps:
+      - uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+        with:
+          persist-credentials: false
+      - id: tag
+        run: |
+          short="$(git rev-parse --short=12 HEAD)"
+          echo "ami_tag=localstack-ec2/app:ami-${short}" >> "$GITHUB_OUTPUT"
+          echo "ami_id=ami-${short}" >> "$GITHUB_OUTPUT"
+      - env:
+          AMI_TAG: ${{ steps.tag.outputs.ami_tag }}
+        run: docker build -t "$AMI_TAG" ./api
+      - uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: image
+          image-ref: ${{ steps.tag.outputs.ami_tag }}
+          severity: HIGH,CRITICAL
+          exit-code: '1'
+          # Report only what we can act on. The Debian base carries ~48
+          # HIGH/CRITICAL CVEs with no upstream patch (perl, zlib, util-linux);
+          # without this the gate is permanently red no matter what we fix, which
+          # trains people to ignore it. Everything fixable still fails the build.
+          ignore-unfixed: true
+
+  deploy-and-verify:
+    needs: build-and-scan-image
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+    env:
+      LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN }}
+      # MySQL lives on Aiven — LocalStack Hobby 501s on RDS. The Makefile maps
+      # AIVEN_* to TF_VAR_db_* and terraform writes them into Secrets Manager.
+      AIVEN_HOST: ${{ secrets.AIVEN_HOST }}
+      AIVEN_PORT: ${{ secrets.AIVEN_PORT }}
+      AIVEN_USER: ${{ secrets.AIVEN_USER }}
+      AIVEN_PASSWORD: ${{ secrets.AIVEN_PASSWORD }}
+      AIVEN_DB: ${{ secrets.AIVEN_DB }}
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      AWS_DEFAULT_REGION: us-east-1
+      # The AMI id, not the docker tag: LocalStack matches the running image by
+      # its localstack-ec2/<name>:<ami-id> tag, but aws_instance.ami rejects
+      # anything that is not ami-<hex> (InvalidAMIID.Malformed).
+      TF_VAR_app_ami_id: ${{ needs.build-and-scan-image.outputs.ami_id }}
+      # A runner's $USER is "runner", so the Makefile's default root
+      # (terraform/envs/$USER) does not exist. Point it at the template.
+      TF_DIR: ${{ github.workspace }}/terraform/envs/_template
+      # Docker-backed EC2 needs the host docker.sock inside the LocalStack
+      # container, and setup-localstack's `localstack start -d` does not mount
+      # it. Credit: diagnosed by @yordanoshagos in PR #9.
+      DOCKER_FLAGS: -v /var/run/docker.sock:/var/run/docker.sock
+      EC2_VM_MANAGER: docker
+    steps:
+      - uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+        with:
+          persist-credentials: false
+      # Build before LocalStack starts: its EC2 docker backend registers AMIs by
+      # scanning images tagged localstack-ec2/<name>:<ami-id>, so the image has
+      # to exist first. The scanned image lives on the build job's runner, not
+      # this one, so rebuild it here under the identical tag.
+      - env:
+          AMI_TAG: ${{ needs.build-and-scan-image.outputs.ami_tag }}
+        run: docker build -t "$AMI_TAG" ./api
+      # in-runner mode: LocalStack runs inside this runner at localhost:4566.
+      # Nothing is hosted off-runner. Install awslocal only — we start
+      # LocalStack ourselves so the docker socket is mounted.
+      - uses: LocalStack/setup-localstack@7c8a0cb3405bc58be4c8f763f812aa000bc46303 # v0.3.2
+        with:
+          install-awslocal: 'true'
+          skip-startup: 'true'
+      - name: Start LocalStack with the docker socket mounted
+        run: |
+          : "${LOCALSTACK_AUTH_TOKEN:?FAIL: LOCALSTACK_AUTH_TOKEN is empty in Actions secrets}"
+          command -v localstack >/dev/null || pipx install localstack
+          localstack --version
+          # GitHub's docker.sock is root:docker 660; LocalStack must be able to
+          # list host images to register them as AMIs.
+          sudo chmod 666 /var/run/docker.sock || true
+          export EC2_VM_MANAGER=docker
+          export DOCKER_FLAGS="-v /var/run/docker.sock:/var/run/docker.sock --privileged"
+          localstack start -d
+          localstack wait -t 120
+          curl -sS http://localhost:4566/_localstack/info || true
+      # Hobby EC2 stays in mock mode even with the socket mounted — the same
+      # licence class as RDS and ELBv2, but silent: ec2 reports "available"
+      # while serving a canned AMI catalogue. Verified independently in PR #9
+      # with LocalStack's own documented example AMI. Fall back to mock so
+      # aws_instance can apply; the scanned image then runs on the runner.
+      - name: Register the AMI, or fall back to mock EC2
+        env:
+          AMI_TAG: ${{ needs.build-and-scan-image.outputs.ami_tag }}
+          AMI_ID: ${{ needs.build-and-scan-image.outputs.ami_id }}
+        run: |
+          for i in $(seq 1 15); do
+            n="$(awslocal ec2 describe-images --filters Name=tag:ec2_vm_manager,Values=docker \
+                  --query 'length(Images)' --output text 2>/dev/null || echo 0)"
+            echo "  try $i: docker-backed AMI count=$n"
+            [ "$n" != "0" ] && [ "$n" != "None" ] && [ -n "$n" ] && break
+            sleep 2
+          done
+          {
+            echo '## LocalStack EC2 mode'
+            echo '```'
+            echo "expected tag : $AMI_TAG"
+            echo "expected id  : $AMI_ID"
+            echo "docker-backed AMI count = $n"
+            echo '```'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+          if awslocal ec2 describe-images --image-ids "$AMI_ID" \
+               --query 'Images[0].ImageId' --output text 2>/dev/null | grep -qx "$AMI_ID"; then
+            echo "OK: LocalStack registered $AMI_ID — real docker-backed EC2"
+            echo "EC2_DOCKER=1" >> "$GITHUB_ENV"
+            exit 0
+          fi
+          echo "WARN: zero docker-backed AMIs — restarting LocalStack in mock mode"
+          localstack stop || true
+          export EC2_VM_MANAGER=mock
+          echo "EC2_VM_MANAGER=mock" >> "$GITHUB_ENV"
+          localstack start -d
+          localstack wait -t 120
+          MOCK_AMI="$(awslocal ec2 describe-images --query 'Images[0].ImageId' --output text 2>/dev/null || true)"
+          if [ -z "$MOCK_AMI" ] || [ "$MOCK_AMI" = "None" ]; then
+            echo "FAIL: mock describe-images returned no AMIs"; exit 1
+          fi
+          echo "TF_VAR_app_ami_id=$MOCK_AMI" >> "$GITHUB_ENV"
+          echo "EC2_DOCKER=0" >> "$GITHUB_ENV"
+          echo "APP_URL=http://127.0.0.1:3000" >> "$GITHUB_ENV"
+          echo "using mock AMI $MOCK_AMI for terraform; app runs on the runner"
+      # Pin terraform: 1.6+ deprecates dynamodb_table, and newer majors have
+      # dropped backend arguments the bootstrap script still relies on.
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
+        with:
+          terraform_version: 1.9.8
+          terraform_wrapper: false
+      # tflocal drives Terraform at LocalStack; verify.sh check 5 shells out to
+      # gitleaks; seed.sh restores the dump into Aiven with the mysql client.
+      - run: pipx install terraform-local
+      - env:
+          GITLEAKS_VERSION: 8.24.3
+        run: |
+          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
+            | sudo tar -xz -C /usr/local/bin gitleaks
+          gitleaks version
+      - run: |
+          command -v mysql >/dev/null || {
+            sudo apt-get update -qq
+            sudo apt-get install -y --no-install-recommends mysql-client
+          }
+          command -v jq >/dev/null || sudo apt-get install -y --no-install-recommends jq
+          mysql --version
+      # envs/_template declares an empty `backend "s3" {}` and expects a
+      # backend.hcl. use_path_style matters: bootstrap/tfstate.sh creates the
+      # bucket path-style via awslocal, and without it PutObject returns
+      # NoSuchBucket even though init can read the state.
+      - run: |
+          cat > "$TF_DIR/backend.hcl" <<'HCL'
+          bucket         = "tfstate-regional-health"
+          key            = "envs/ci/terraform.tfstate"
+          region         = "us-east-1"
+          dynamodb_table = "tfstate-lock"
+          encrypt        = true
+
+          # tflocal rewrites the *provider* to talk to LocalStack but leaves the
+          # *backend* pointed at real AWS, so init died validating "test" against
+          # the real STS (InvalidClientTokenId). Point the backend at LocalStack
+          # and skip the credential round-trips that have no meaning here.
+          use_path_style              = true
+          skip_credentials_validation = true
+          skip_metadata_api_check     = true
+          skip_region_validation      = true
+          skip_requesting_account_id  = true
+
+          endpoints = {
+            s3       = "http://localhost:4566"
+            dynamodb = "http://localhost:4566"
+            sts      = "http://localhost:4566"
+            iam      = "http://localhost:4566"
+          }
+          HCL
+      # bootstrap creates the state bucket + lock table, so init has somewhere
+      # to write. `make up` re-runs a bare `init`, which reuses this cached
+      # backend config (standard partial-configuration flow).
+      - run: make bootstrap
+      - run: tflocal -chdir="$TF_DIR" init -backend-config=backend.hcl
+      - run: make up
+      # Mock EC2 never runs user_data, so the scanned image has to listen on the
+      # runner for /healthz, /readyz and /debug/secret-source.
+      - name: Run the scanned image on the runner (mock EC2)
+        if: env.EC2_DOCKER != '1'
+        env:
+          AMI_TAG: ${{ needs.build-and-scan-image.outputs.ami_tag }}
+        run: |
+          SECRET_ARN="$(tflocal -chdir="$TF_DIR" output -raw secret_arn)"
+          docker rm -f capacity-api 2>/dev/null || true
+          docker run -d --network host --name capacity-api \
+            -e AWS_ENDPOINT_URL=http://127.0.0.1:4566 \
+            -e AWS_ACCESS_KEY_ID=test \
+            -e AWS_SECRET_ACCESS_KEY=test \
+            -e AWS_DEFAULT_REGION=us-east-1 \
+            -e DB_SECRET_ARN="$SECRET_ARN" \
+            "$AMI_TAG"
+          for i in $(seq 1 45); do
+            if curl -fsS http://127.0.0.1:3000/readyz >/dev/null; then
+              echo "OK: app ready on :3000 after ${i} tries"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "FAIL: app never became ready on :3000"
+          docker logs capacity-api 2>&1 | tail -60 || true
+          exit 1
+      - name: C8 verify
+        run: bash scripts/verify.sh
