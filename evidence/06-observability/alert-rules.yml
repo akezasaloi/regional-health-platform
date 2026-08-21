@@ -1,0 +1,138 @@
+# =============================================================================
+# C6 — one alert rule per A1 incident, against the rehosted stack.
+#
+# Mount into Prometheus with `rule_files: [alert-rules.yml]`.
+#
+# Design notes that apply to all four:
+#
+#   * Every rule alerts on a SYMPTOM the user feels (slow, stalled, erroring,
+#     restarting), not on a cause. Causes change when you fix them; symptoms
+#     are what pages you.
+#   * `for:` is set longer than one scrape interval (5s) everywhere, so a single
+#     unlucky sample cannot page anyone. It is the difference between "the
+#     system is bad" and "a scrape was bad".
+#   * These fixes landed in A1, so a healthy replay will NOT trip them. Proving
+#     an alert means injecting the fault, watching it reach `firing`, then
+#     confirming the fix clears it. A green alert on a healthy system proves
+#     nothing.
+# =============================================================================
+
+groups:
+  - name: capacity-api-incidents
+    interval: 5s
+    rules:
+      # -----------------------------------------------------------------------
+      # OPS-2201 — unbounded search: p95 latency on the search route.
+      #
+      # The A1 cause was a LIKE '%term%' scan over 100k rows with no LIMIT.
+      # Alerting on rows-examined would be alerting on the cause; per-route p95
+      # is what the caller actually experiences, and it stays valid if the
+      # query is rewritten. Scoped by route so a slow export cannot mask it.
+      # -----------------------------------------------------------------------
+      - alert: SearchLatencyP95High
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum by (le, route) (
+              rate(http_request_duration_seconds_bucket{job="capacity-api", route=~".*search.*"}[1m])
+            )
+          ) > 1
+        for: 1m
+        labels:
+          severity: warning
+          incident: OPS-2201
+        annotations:
+          summary: "Search p95 above 1s (OPS-2201)"
+          description: >-
+            p95 on {{ $labels.route }} is {{ $value | humanizeDuration }}.
+            A1 cause was an unbounded LIKE scan; check rows examined and that
+            the LIMIT is still in place.
+
+      # -----------------------------------------------------------------------
+      # OPS-2202 — connection-pool saturation while the DB is idle.
+      #
+      # The trap: with queueLimit 0 the pool queues forever, so there are no
+      # errors to count — requests just get slower while MySQL's own dashboards
+      # stay flat. So alert on latency climbing on a DB-backed route while the
+      # DB reports no errors. That combination is what distinguishes "the pool
+      # is the bottleneck" from "the database is struggling".
+      # -----------------------------------------------------------------------
+      - alert: ConnectionPoolSaturated
+        expr: |
+          (
+            histogram_quantile(
+              0.95,
+              sum by (le) (rate(http_request_duration_seconds_bucket{job="capacity-api"}[1m]))
+            ) > 2
+          )
+          and
+          (
+            sum(rate(db_errors_total{job="capacity-api"}[1m])) < 0.1
+          )
+        for: 2m
+        labels:
+          severity: critical
+          incident: OPS-2202
+        annotations:
+          summary: "Requests stalling with a healthy DB — pool saturation (OPS-2202)"
+          description: >-
+            p95 above 2s while db_errors_total is flat. The finite resource is
+            the app-tier mysql2 pool, not MySQL. /readyz reports pool occupancy.
+
+      # -----------------------------------------------------------------------
+      # OPS-2203 — InnoDB lock waits during the admissions write path.
+      #
+      # This one has a real error code, so count it directly. Any sustained
+      # rate is worth paging on: lock-wait timeouts mean writes are being
+      # dropped, and unlike latency there is no acceptable steady-state rate.
+      # -----------------------------------------------------------------------
+      - alert: LockWaitTimeouts
+        expr: |
+          sum(rate(db_errors_total{job="capacity-api", code=~"ER_LOCK_WAIT_TIMEOUT|ER_LOCK_DEADLOCK"}[1m])) > 0
+        for: 1m
+        labels:
+          severity: critical
+          incident: OPS-2203
+        annotations:
+          summary: "InnoDB lock-wait timeouts on writes (OPS-2203)"
+          description: >-
+            {{ $value | printf "%.2f" }} lock errors/sec on
+            {{ $labels.route }}. Check transaction scope and row-ordering in
+            the admissions path.
+
+      # -----------------------------------------------------------------------
+      # OPS-2204 — export OOMs the container, which restarts.
+      #
+      # Two rules. `up == 0` is the deterministic one: killing the process
+      # trips it with no load tuning at all, which is why it is the incident
+      # chosen for the full C7 write-up. The heap rule is the leading
+      # indicator — it fires before the kill, which is the one you actually
+      # want to be paged by.
+      # -----------------------------------------------------------------------
+      - alert: AppDown
+        expr: up{job="capacity-api"} == 0
+        for: 30s
+        labels:
+          severity: critical
+          incident: OPS-2204
+        annotations:
+          summary: "capacity-api is not being scraped (OPS-2204)"
+          description: >-
+            Target {{ $labels.instance }} is down. During A1 this was the
+            container being OOM-killed at --memory=512m while streaming the
+            full patient export into memory.
+
+      - alert: HeapNearContainerLimit
+        expr: |
+          nodejs_heap_size_used_bytes{job="capacity-api"}
+            / nodejs_heap_size_total_bytes{job="capacity-api"} > 0.9
+        for: 1m
+        labels:
+          severity: warning
+          incident: OPS-2204
+        annotations:
+          summary: "Node heap above 90% of allocated (OPS-2204)"
+          description: >-
+            Heap at {{ $value | humanizePercentage }} of total. Leading
+            indicator for the OOM kill — the export should stream rather than
+            buffer.

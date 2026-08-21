@@ -57,3 +57,6 @@ evidence/**/*.mp4
 # Keep generated dumps out of git
 /tmp/
 *.dump.sql
+
+# The assignment brief zip — not part of the deliverable
+rehosting-capacity-lab*.zip

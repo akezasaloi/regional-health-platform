@@ -19,8 +19,8 @@
 
 const express = require('express');
 const client = require('prom-client');
-const { getPool, getMongo, applySecret } = require('./database');
-const { loadDbSecrets, secretSourceArn } = require('./secrets');
+const { getPool, getMongo, applySecret, poolStats } = require('./database');
+const { loadDbCredentials, getSecretSource, secretResolved } = require('./secrets');
 
 const app = express();
 app.use(express.json());
@@ -77,21 +77,38 @@ app.get('/health', (_req, res) => res.json({ status: 'ok' }));
 app.get('/healthz', (_req, res) => res.json({ status: 'ok' }));
 
 app.get('/readyz', async (_req, res) => {
+  // C4: readiness is not liveness. 503 on any of the three conditions that make
+  // this instance unable to serve, so nginx pulls it from the upstream pool.
+  const checks = { secret: 'ok', pool: 'ok', db: 'ok' };
+
+  // 1. the secret failed to resolve — env fallback is not a ready state here
+  if (!secretResolved()) {
+    checks.secret = 'unresolved';
+  }
+
+  // 2. pool saturated: every connection busy and callers already queued.
+  //    queueLimit is 0 (unbounded), so saturation shows as latency, not errors —
+  //    exactly the OPS-2202 failure mode. Readiness is where it becomes visible.
+  const stats = poolStats();
+  if (stats.free === 0 && stats.queued > 0) {
+    checks.pool = `saturated (${stats.all}/${stats.limit} busy, ${stats.queued} queued)`;
+  }
+
+  // 3. the DB itself is unreachable / rejecting
   try {
     await getPool().query('SELECT 1');
-    res.json({ status: 'ready' });
   } catch (err) {
-    res.status(503).json({ status: 'not-ready', error: err.message });
+    checks.db = err.code || err.message;
   }
+
+  const ready = Object.values(checks).every((v) => v === 'ok');
+  res.status(ready ? 200 : 503).json({ status: ready ? 'ready' : 'not-ready', checks });
 });
 
 app.get('/debug/secret-source', (_req, res) => {
-  const arn = secretSourceArn();
-  if (!arn) {
-    res.status(503).json({ arn: null, source: 'env' });
-    return;
-  }
-  res.json({ arn });
+  // ARN + version only — never the envelope.
+  const src = getSecretSource();
+  res.status(src.arn && src.arn !== 'env' ? 200 : 503).json(src);
 });
 
 app.get('/metrics', async (_req, res) => {
@@ -251,15 +268,8 @@ app.get('/api/audit/ping', async (_req, res) => {
 // Boot — resolve DB creds from Secrets Manager before listen (C3)
 // ---------------------------------------------------------------------------
 async function boot() {
-  const secret = await loadDbSecrets();
-  if (secret) {
-    applySecret(secret);
-    // eslint-disable-next-line no-console
-    console.log(`boot: loaded secret ${secretSourceArn()}`);
-  } else {
-    // eslint-disable-next-line no-console
-    console.log('boot: no DB_SECRET_ARN, using MYSQL_* env');
-  }
+  const secret = await loadDbCredentials();
+  applySecret(secret);
   app.listen(PORT, () => {
     // eslint-disable-next-line no-console
     console.log(`capacity-api listening on :${PORT} (metrics at /metrics)`);

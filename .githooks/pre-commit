@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+# =============================================================================
+# C5 — gitleaks as a pre-commit gate.
+#
+# The CI job scans full history and is the gate that blocks a merge. This hook
+# is the fast local half: it catches a credential *before* it becomes a commit,
+# because once a secret is in history, removing it means a rewrite and a
+# rotation — the commit is the point of no return, not the push.
+#
+# Enable once per clone (hooks are not shared by git):
+#   git config core.hooksPath .githooks
+#
+# Deliberately staged-only and --no-git: it scans what you are about to commit,
+# so it stays fast enough that nobody is tempted to reach for --no-verify.
+# =============================================================================
+set -euo pipefail
+
+if ! command -v gitleaks >/dev/null 2>&1; then
+  echo "pre-commit: gitleaks not installed — skipping local scan." >&2
+  echo "            Install it (brew install gitleaks) or CI will catch this later." >&2
+  exit 0
+fi
+
+STAGED="$(git diff --cached --name-only --diff-filter=ACM)"
+[ -z "$STAGED" ] && exit 0
+
+TMP="$(mktemp -d)"
+trap 'rm -rf "$TMP"' EXIT
+
+# Mirror the staged content into a scratch tree so we scan exactly what is
+# about to be committed, not the working copy (which may differ).
+while IFS= read -r f; do
+  mkdir -p "$TMP/$(dirname "$f")"
+  git show ":$f" > "$TMP/$f" 2>/dev/null || true
+done <<< "$STAGED"
+
+if ! gitleaks detect --no-git --source "$TMP" --config .gitleaks.toml --redact -v; then
+  cat >&2 <<'MSG'
+
+pre-commit: gitleaks found a secret in staged changes — commit blocked.
+
+If it is a real credential: remove it, then ROTATE it. It was on disk and may
+be in your shell history or editor backups; treat it as burned.
+
+If it is a false positive: add a scoped allowlist entry to .gitleaks.toml with
+a comment explaining why. Do not use --no-verify; CI scans full history and
+will block the merge anyway.
+MSG
+  exit 1
+fi

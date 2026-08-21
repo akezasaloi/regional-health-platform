@@ -9,6 +9,17 @@ name: ci
 
 on:
   workflow_call:
+    inputs:
+      # Individual rehost repos call this workflow with their own layout.
+      # Defaults keep the group repo's own pr.yml working unchanged.
+      app_dir:
+        description: "Directory containing the app Dockerfile"
+        type: string
+        default: api
+      terraform_dir:
+        description: "Terraform root that composes modules/data + modules/service"
+        type: string
+        default: terraform/envs/_template
     secrets:
       LOCALSTACK_AUTH_TOKEN:
         required: false
@@ -105,7 +116,8 @@ jobs:
           echo "ami_id=ami-${short}" >> "$GITHUB_OUTPUT"
       - env:
           AMI_TAG: ${{ steps.tag.outputs.ami_tag }}
-        run: docker build -t "$AMI_TAG" ./api
+          APP_DIR: ${{ inputs.app_dir }}
+        run: docker build -t "$AMI_TAG" "./$APP_DIR"
       - uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           scan-type: image
@@ -141,7 +153,7 @@ jobs:
       TF_VAR_app_ami_id: ${{ needs.build-and-scan-image.outputs.ami_id }}
       # A runner's $USER is "runner", so the Makefile's default root
       # (terraform/envs/$USER) does not exist. Point it at the template.
-      TF_DIR: ${{ github.workspace }}/terraform/envs/_template
+      TF_DIR: ${{ github.workspace }}/${{ inputs.terraform_dir }}
       # Docker-backed EC2 needs the host docker.sock inside the LocalStack
       # container, and setup-localstack's `localstack start -d` does not mount
       # it. Credit: diagnosed by @yordanoshagos in PR #9.
@@ -154,13 +166,34 @@ jobs:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
         with:
           persist-credentials: false
+      # ----------------------------------------------------------------------
+      # E2 — production path, deliberately not enabled here.
+      #
+      # Against real AWS this job would assume a role via GitHub's OIDC
+      # provider instead of holding any long-lived key. LocalStack accepts
+      # test/test, so there is nothing to federate against in this lab — the
+      # block stays commented as a design deliverable. Trust policy:
+      # docs/oidc-trust-policy.json. The `sub` wildcard failure mode is
+      # written up in README.md.
+      #
+      #   permissions:
+      #     id-token: write      # required to mint the OIDC token
+      #     contents: read
+      #
+      #   - uses: aws-actions/configure-aws-credentials@<40-char-sha>
+      #     with:
+      #       role-to-assume: arn:aws:iam::123456789012:role/regional-health-ci
+      #       aws-region: us-east-1
+      #       # no aws-access-key-id / aws-secret-access-key: that is the point
+      # ----------------------------------------------------------------------
       # Build before LocalStack starts: its EC2 docker backend registers AMIs by
       # scanning images tagged localstack-ec2/<name>:<ami-id>, so the image has
       # to exist first. The scanned image lives on the build job's runner, not
       # this one, so rebuild it here under the identical tag.
       - env:
           AMI_TAG: ${{ needs.build-and-scan-image.outputs.ami_tag }}
-        run: docker build -t "$AMI_TAG" ./api
+          APP_DIR: ${{ inputs.app_dir }}
+        run: docker build -t "$AMI_TAG" "./$APP_DIR"
       # in-runner mode: LocalStack runs inside this runner at localhost:4566.
       # Nothing is hosted off-runner. Install awslocal only — we start
       # LocalStack ourselves so the docker socket is mounted.

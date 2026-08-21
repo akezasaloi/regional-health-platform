@@ -163,3 +163,57 @@ GitHub Actions secrets (same names, for Arsema's pipeline):
 `ROW_COUNT` for the cloud seed is **10000** (C2). Local compose still defaults to 100000.
 
 See `terraform/README.md`, `CONTRIBUTIONS.md`, and `FIDELITY.md`.
+
+---
+
+## Deploy identity: OIDC instead of long-lived keys (E2)
+
+CI holds no AWS keys in the production design. The deploy job mints a
+short-lived GitHub OIDC token and exchanges it for a role via
+`sts:AssumeRoleWithWebIdentity`. The commented `configure-aws-credentials`
+block sits in `.github/workflows/ci.yml`; the trust policy is
+[`docs/oidc-trust-policy.json`](docs/oidc-trust-policy.json). It is not enabled
+in this lab because LocalStack accepts `test`/`test` and there is no real
+account to federate against.
+
+The whole security of the arrangement rests on one condition:
+
+```json
+"token.actions.githubusercontent.com:sub":
+  "repo:akezasaloi/regional-health-platform:ref:refs/heads/main"
+```
+
+### What breaks if `sub` is `repo:<org>/*`
+
+That wildcard says *"any workflow, in any repository in this org, on any ref,
+may assume this role."* Three things break, in increasing order of severity.
+
+**1. Every branch becomes production.** `ref:refs/heads/main` is what ties the
+credential to reviewed code. Drop it and any branch can assume the role — and
+anyone who can push a branch can push a workflow file. Opening a PR that adds
+`.github/workflows/evil.yml` is then enough to read your production secrets, no
+review required. Branch protection does not help: the workflow runs *before*
+anything merges.
+
+**2. Every repository in the org becomes production.** A wildcard over `<org>/*`
+means the newest, least-guarded repo — a prototype, an intern's fork, an
+archived service nobody watches — can assume the same role as the deploy
+pipeline. Your blast radius is now the weakest repo in the organisation, and it
+grows every time someone clicks "New repository".
+
+**3. It fails open, and silently.** A too-narrow `sub` breaks loudly: the job
+cannot assume the role and CI goes red. A too-broad one works perfectly, forever,
+and nothing in any log distinguishes a legitimate deploy from an attacker's
+workflow — both present a valid token for the same role. There is no failure to
+detect, which is why this is worth getting right at write time rather than
+discovering in an incident review.
+
+The same reasoning applies to `aud`. Pinning it to `sts.amazonaws.com` stops a
+token minted for another audience being replayed here.
+
+A useful sharpening: the `sub` claim is an *authorisation* decision wearing
+authentication's clothing. The OIDC token proves *which workflow* is asking —
+GitHub signs it and cannot be spoofed. The trust policy decides *which of those
+workflows is allowed*. Widening `sub` doesn't weaken the cryptography at all;
+it just tells AWS to accept a much larger set of provably-genuine callers. The
+signature stays perfect while the guarantee becomes worthless.
