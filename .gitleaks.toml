@@ -12,9 +12,3 @@ paths = [
   '''(^|/)\.tflocal/''',
   '''(^|/)node_modules/''',
 ]
-
-# C5 gate-test only — must not match db_password = var.db_password or labpassword.
-[[rules]]
-id = "gate-test-fake-mysql-password"
-description = "C5 gate-test marker (assignment fake password only)"
-regex = '''MYSQL_ROOT_PASSWORD=Sup3rSecret!'''
