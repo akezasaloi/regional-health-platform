@@ -62,16 +62,27 @@ PORT="$(echo "${CREDS_JSON}" | jq -r .port)"
 DB_NAME="$(echo "${CREDS_JSON}" | jq -r .dbname)"
 unset CREDS_JSON
 
+# Oracle mysql uses --ssl-mode; Debian/Ubuntu default-mysql-client is MariaDB
+# and rejects unknown --ssl-mode (seed then looks like "Aiven never answered").
 ssl_args=()
 if [[ -n "${AIVEN_CA_PATH:-}" ]]; then
   if [[ ! -f "${AIVEN_CA_PATH}" ]]; then
     echo "FAIL: AIVEN_CA_PATH=${AIVEN_CA_PATH} is not a file" >&2
     exit 1
   fi
-  ssl_args=(--ssl-mode=VERIFY_CA --ssl-ca="${AIVEN_CA_PATH}")
-  echo ">> TLS: VERIFY_CA with ${AIVEN_CA_PATH}"
+  if mysql --help 2>/dev/null | grep -q -- '--ssl-mode'; then
+    ssl_args=(--ssl-mode=VERIFY_CA --ssl-ca="${AIVEN_CA_PATH}")
+    echo ">> TLS: VERIFY_CA with ${AIVEN_CA_PATH}"
+  else
+    ssl_args=(--ssl --ssl-ca="${AIVEN_CA_PATH}" --ssl-verify-server-cert)
+    echo ">> TLS: MariaDB VERIFY with ${AIVEN_CA_PATH}"
+  fi
 else
-  ssl_args=(--ssl-mode=REQUIRED)
+  if mysql --help 2>/dev/null | grep -q -- '--ssl-mode'; then
+    ssl_args=(--ssl-mode=REQUIRED)
+  else
+    ssl_args=(--ssl)
+  fi
   echo ">> TLS: REQUIRED (set AIVEN_CA_PATH to the downloaded Aiven CA for VERIFY_CA)"
 fi
 

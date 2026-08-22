@@ -1,0 +1,1 @@
+["AWS_ACCESS_KEY_ID=test","AWS_SECRET_ACCESS_KEY=test","AWS_DEFAULT_REGION=us-east-1","DB_SECRET_ARN=arn:aws:secretsmanager:us-east-1:000000000000:secret:regional-health/db-FNBSBF","AWS_ENDPOINT_URL=http://127.0.0.1:4566","PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin","NODE_VERSION=22.23.2","YARN_VERSION=1.22.22"]
