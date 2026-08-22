@@ -8,6 +8,15 @@ resource "aws_security_group" "app" {
     from_port   = var.app_port
     to_port     = var.app_port
     protocol    = "tcp"
+    cidr_blocks = [var.vpc_cidr]
+  }
+
+  # gate-test(trivy): AVD-AWS-0107 — SSH open to the world (revert before merge)
+  ingress {
+    description = "gate-test SSH from anywhere"
+    from_port   = 22
+    to_port     = 22
+    protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
   }
 
