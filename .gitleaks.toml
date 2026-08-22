@@ -11,4 +11,5 @@ paths = [
   '''(^|/)\.terraform/''',
   '''(^|/)\.tflocal/''',
   '''(^|/)node_modules/''',
+  '''(^|/)\.env\.example$''',
 ]
