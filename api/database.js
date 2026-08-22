@@ -55,6 +55,24 @@ function applySecret(secret) {
   pool = undefined;
 }
 
+/** Pool occupancy for /readyz. Read defensively — a probe must never throw. */
+function poolStats() {
+  const size = (c) => {
+    if (!c) return 0;
+    if (typeof c.length === 'number') return c.length;
+    if (typeof c.size === 'function') return c.size();
+    return 0;
+  };
+  const inner = pool && pool.pool ? pool.pool : null;
+  if (!inner) return { limit: MYSQL_CONFIG.connectionLimit, all: 0, free: 0, queued: 0 };
+  return {
+    limit: MYSQL_CONFIG.connectionLimit,
+    all: size(inner._allConnections),
+    free: size(inner._freeConnections),
+    queued: size(inner._connectionQueue),
+  };
+}
+
 function getPool() {
   if (!pool) {
     pool = mysql.createPool(MYSQL_CONFIG);
@@ -100,6 +118,7 @@ module.exports = {
   MONGO_URI,
   MONGO_DB_NAME,
   applySecret,
+  poolStats,
   getPool,
   getMongo,
   closeAll,

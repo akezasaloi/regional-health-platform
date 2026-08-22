@@ -1,9 +1,17 @@
 # C5 — gates that actually block
 
-Three tools, three deliberately red PRs, then a fix commit each. A scanner
-that runs but never fails the build is theatre.
+Three tools, three jobs, each with `exit-code: '1'` or an equivalent non-zero
+exit. A scanner that runs but never blocks is theatre, so each gate below was
+proven by deliberately introducing the flaw it exists to catch, watching CI go
+red, and then fixing it.
 
-| Gate | Red PR | Scanner output | Fix commit |
+Pipeline: [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml) — the
+reusable workflow, called by [`pr.yml`](../../.github/workflows/pr.yml) on every
+pull request.
+
+## The three red PRs
+
+| Gate | Insecure change | Red PR | Fix commit |
 |---|---|---|---|
 | gitleaks | fake `MYSQL_ROOT_PASSWORD` in tracked config (+ enabled `useDefault`) | [#20](https://github.com/akezasaloi/regional-health-platform/pull/20) · [failed run](https://github.com/akezasaloi/regional-health-platform/actions/runs/32557113201) | [PR #21](https://github.com/akezasaloi/regional-health-platform/pull/21) · [`1576bc8`](https://github.com/akezasaloi/regional-health-platform/commit/1576bc8b7797127d6c7a6c731faf42be983908b2) |
 | trivy config | SSH ingress (port 22) open to `0.0.0.0/0` | [#22](https://github.com/akezasaloi/regional-health-platform/pull/22) · [failed run](https://github.com/akezasaloi/regional-health-platform/actions/runs/32562633515) | [`2d2de18`](https://github.com/akezasaloi/regional-health-platform/commit/2d2de187d7f634fc9f15a0c7cf4cd712756c6554) |
