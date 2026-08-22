@@ -1,0 +1,14 @@
+
+Warning: Deprecated Parameter
+
+The parameter "dynamodb_table" is deprecated. Use parameter "use_lockfile"
+instead.
+module.data.aws_secretsmanager_secret.db: Refreshing state... [id=arn:aws:secretsmanager:us-east-1:000000000000:secret:regional-health/db-FNBSBF]
+module.service.aws_security_group.app: Refreshing state... [id=sg-66cca43c346039000]
+module.data.aws_secretsmanager_secret_version.db: Refreshing state... [id=arn:aws:secretsmanager:us-east-1:000000000000:secret:regional-health/db-FNBSBF|terraform-LgjVB3Zo4IRKg8dxjN1UZcpS9N]
+module.service.aws_instance.app: Refreshing state... [id=i-ec65d15a673c1a1ef]
+
+No changes. Your infrastructure matches the configuration.
+
+Terraform has compared your real infrastructure against your configuration
+and found no differences, so no changes are needed.

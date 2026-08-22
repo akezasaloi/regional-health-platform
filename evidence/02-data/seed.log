@@ -1,0 +1,86 @@
+>> reading Terraform outputs from /workspaces/regional-health-platform/terraform/envs/saloi
+>> fetching DB credentials from Secrets Manager arn:aws:secretsmanager:us-east-1:000000000000:secret:regional-health/db-FNBSBF
+FAIL: AIVEN_CA_PATH=./secrets/aiven-ca.pem is not a file
+>> reading Terraform outputs from /workspaces/regional-health-platform/terraform/envs/saloi
+>> fetching DB credentials from Secrets Manager arn:aws:secretsmanager:us-east-1:000000000000:secret:regional-health/db-FNBSBF
+FAIL: AIVEN_CA_PATH=./secrets/aiven-ca.pem is not a file
+>> reading Terraform outputs from /workspaces/regional-health-platform/terraform/envs/saloi
+>> fetching DB credentials from Secrets Manager arn:aws:secretsmanager:us-east-1:000000000000:secret:regional-health/db-FNBSBF
+>> TLS: VERIFY_CA with ./secrets/aiven-ca.pem
+>> waiting for Aiven capacity-lab-akezasaloi-b9bb.g.aivencloud.com:13240 (free plan sleeps when idle) ...
+FAIL: Aiven never answered. Open the service in the Aiven console to wake it, then retry.
+>> reading Terraform outputs from /workspaces/regional-health-platform/terraform/envs/saloi
+>> fetching DB credentials from Secrets Manager arn:aws:secretsmanager:us-east-1:000000000000:secret:regional-health/db-FNBSBF
+>> TLS: VERIFY_CA with ./secrets/aiven-ca.pem
+>> waiting for Aiven capacity-lab-akezasaloi-b9bb.g.aivencloud.com:13240 (free plan sleeps when idle) ...
+FAIL: Aiven never answered. Open the service in the Aiven console to wake it, then retry.
+>> reading Terraform outputs from /workspaces/regional-health-platform/terraform/envs/saloi
+>> fetching DB credentials from Secrets Manager arn:aws:secretsmanager:us-east-1:000000000000:secret:regional-health/db-FNBSBF
+>> TLS: MariaDB VERIFY with ./secrets/aiven-ca.pem
+>> waiting for Aiven capacity-lab-akezasaloi-b9bb.g.aivencloud.com:13240 (free plan sleeps when idle) ...
+>> Aiven is up
+>> ensuring database capacity_lab exists
+>> starting throwaway mysql:8.0 to generate a mysqldump (ROW_COUNT=10000)
+Unable to find image 'mysql:8.0' locally
+8.0: Pulling from library/mysql
+0d74d296605b: Pulling fs layer
+4c8a3e0d4e4b: Pulling fs layer
+96d30d9fbee8: Pulling fs layer
+a63160a5eda1: Pulling fs layer
+297d04cfe470: Pulling fs layer
+7534d1db9f8d: Pulling fs layer
+49ec2dab01d9: Pulling fs layer
+6ef6c7b50a93: Pulling fs layer
+ab24264a27e9: Pulling fs layer
+edf85873f64e: Pulling fs layer
+e3e5d1ac74c1: Pulling fs layer
+6ef6c7b50a93: Download complete
+0d74d296605b: Download complete
+4c8a3e0d4e4b: Download complete
+297d04cfe470: Download complete
+e3e5d1ac74c1: Download complete
+96d30d9fbee8: Download complete
+a63160a5eda1: Download complete
+7534d1db9f8d: Download complete
+edf85873f64e: Download complete
+49ec2dab01d9: Download complete
+ab24264a27e9: Download complete
+796812c73292: Download complete
+af166387641d: Download complete
+edf85873f64e: Pull complete
+6ef6c7b50a93: Pull complete
+e3e5d1ac74c1: Pull complete
+0d74d296605b: Pull complete
+4c8a3e0d4e4b: Pull complete
+297d04cfe470: Pull complete
+a63160a5eda1: Pull complete
+7534d1db9f8d: Pull complete
+49ec2dab01d9: Pull complete
+ab24264a27e9: Pull complete
+96d30d9fbee8: Pull complete
+Digest: sha256:7dcddc01f13bab2f15cde676d44d01f61fc9f99fe7785e86196dfc07d358ae2b
+Status: Downloaded newer image for mysql:8.0
+>> waiting for throwaway MySQL ...
+mysqladmin: [Warning] Using a password on the command line interface can be insecure.
+>> loading schema + 10000 patients into throwaway MySQL
+>> Waiting for MySQL at 127.0.0.1:3306 ...
+   ...still waiting
+   ...still waiting
+   ...still waiting
+>> MySQL is up.
+>> Creating schema and loading 10000 patient rows (this may take a minute) ...
+mysql: [Warning] Using a password on the command line interface can be insecure.
+seeded
+patients rows: 10000
+seeded
+hospitals rows: 5
+>> Seed complete.
+mysql: [Warning] Using a password on the command line interface can be insecure.
+>> mysqldump throwaway → /tmp/capacity_lab.dump.sql
+mysqldump: [Warning] Using a password on the command line interface can be insecure.
+>> restoring dump into Aiven capacity-lab-akezasaloi-b9bb.g.aivencloud.com:13240/capacity_lab as avnadmin (TLS)
+>> row counts (C2 evidence)
+# captured 2026-08-22T01:02:50Z  ROW_COUNT=10000
+patients=10000
+hospitals=5
+>> seed complete — 10000 patients in Aiven capacity_lab

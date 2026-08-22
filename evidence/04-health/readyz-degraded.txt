@@ -1,0 +1,8 @@
+# C4 break-the-secret — 2026-08-22T01:17:11Z
+## GET /readyz (expect 503)
+{"status":"not-ready","error":"Access denied for user 'avnadmin'@'4.240.18.224' (using password: YES)"}
+http_code=503
+
+## GET /healthz (expect 200)
+{"status":"ok"}
+http_code=200

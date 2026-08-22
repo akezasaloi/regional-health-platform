@@ -1,0 +1,2 @@
+boot: loaded secret arn:aws:secretsmanager:us-east-1:000000000000:secret:regional-health/db-FNBSBF
+capacity-api listening on :3000 (metrics at /metrics)

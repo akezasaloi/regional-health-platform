@@ -13,8 +13,8 @@ pull request.
 
 | Gate | Insecure change | Red PR | Fix commit |
 |---|---|---|---|
-| gitleaks | committed `MYSQL_ROOT_PASSWORD=Sup3rSecret!` in a `.env` | _PR link_ | _sha_ |
-| trivy config | security-group ingress widened to `0.0.0.0/0` | _PR link_ | _sha_ |
+| gitleaks | fake `MYSQL_ROOT_PASSWORD` in tracked config (+ enabled `useDefault`) | [#20](https://github.com/akezasaloi/regional-health-platform/pull/20) · [failed run](https://github.com/akezasaloi/regional-health-platform/actions/runs/32557113201) | [PR #21](https://github.com/akezasaloi/regional-health-platform/pull/21) · [`1576bc8`](https://github.com/akezasaloi/regional-health-platform/commit/1576bc8b7797127d6c7a6c731faf42be983908b2) |
+| trivy config | SSH ingress (port 22) open to `0.0.0.0/0` | [#22](https://github.com/akezasaloi/regional-health-platform/pull/22) · [failed run](https://github.com/akezasaloi/regional-health-platform/actions/runs/32562633515) | [`2d2de18`](https://github.com/akezasaloi/regional-health-platform/commit/2d2de187d7f634fc9f15a0c7cf4cd712756c6554) |
 | zizmor | one `uses:` moved from a 40-char SHA to `@v4` | _PR link_ | _sha_ |
 
 Scanner output for each is committed alongside this file: `trivy-image.json`,
@@ -33,13 +33,16 @@ at an over-permissioned secret passes cleanly. Green means "no known pattern
 matched", not "no secrets here".
 
 **trivy** compares declared configuration and installed package versions against
-databases of known issues. It cannot reason about runtime: a security group
-that trivy passes may still be wide open because LocalStack only honours the
-default SG, and a `0.0.0.0/0` egress rule it flags may be entirely correct for a
-NAT-less build box. On images it only knows *published* CVEs — a vulnerability
-disclosed tomorrow is invisible today, and our scan runs `ignore-unfixed`, so
-~48 HIGH/CRITICAL findings with no upstream patch are reported but do not block.
-Green means "nothing known and fixable", not "secure".
+databases of known issues. **`AVD-AWS-0107` only flags SSH (22) and RDP (3389)
+ingress to `0.0.0.0/0`** — widening the app port to the whole internet did not
+fail the gate; adding an SSH ingress rule did. It cannot reason about runtime: a
+security group that trivy passes may still be wide open because LocalStack only
+honours the default SG, and a `0.0.0.0/0` egress rule it flags may be entirely
+correct for a NAT-less build box. On images it only knows *published* CVEs — a
+vulnerability disclosed tomorrow is invisible today, and our scan runs
+`ignore-unfixed`, so ~48 HIGH/CRITICAL findings with no upstream patch are
+reported but do not block. Green means "nothing known and fixable", not
+"secure".
 
 **zizmor** analyses workflow files statically: unpinned actions, script
 injection through `${{ }}` in `run:`, over-broad `permissions`, inherited
