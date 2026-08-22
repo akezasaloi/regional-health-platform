@@ -1,5 +1,8 @@
 title = "regional-health-platform"
 
+[extend]
+useDefault = true
+
 # Generated during `make up` / `make verify`. Hostnames in apply.log / seed.log
 # are not committed credentials; scanning them after apply false-fails C8.
 [allowlist]
@@ -9,3 +12,8 @@ paths = [
   '''(^|/)\.tflocal/''',
   '''(^|/)node_modules/''',
 ]
+
+[[rules]]
+id = "committed-db-password"
+description = "Database password committed to a tracked config file"
+regex = '''(?i)(?:mysql_root_password|db_password|database_password)\s*=\s*\S{6,}'''
